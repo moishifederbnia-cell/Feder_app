@@ -179,3 +179,5 @@ i.lg{width:10px;height:10px}
  .rep h2{break-after:avoid}.rt tr{break-inside:avoid}
  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
+.tabs.t6{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}.tabs.t6 .tab{flex:none;padding:0 16px;white-space:nowrap}
+.ftype{flex:none;min-width:48px;height:44px;border-radius:10px;background:var(--info-bg);color:var(--info-ink);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px}
