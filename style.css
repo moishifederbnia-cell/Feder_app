@@ -185,3 +185,6 @@ i.lg{width:10px;height:10px}
 .rt td.okt{color:#17613A;font-weight:700}.rt td.badt{color:#B3261E;font-weight:700}
 
 .rt td.st{white-space:normal;min-width:84px;font-size:13px}
+
+.bellbtn{position:relative;background:transparent;border:2px solid var(--navy-sub);color:#fff;width:48px;height:48px;border-radius:14px;display:grid;place-items:center;cursor:pointer;flex:none}
+.bellbtn .bdg{position:absolute;top:-7px;inset-inline-start:-7px;background:#F7941D;color:#fff;border-radius:999px;min-width:22px;height:22px;font:700 13px/22px Heebo,sans-serif;text-align:center;padding:0 5px}

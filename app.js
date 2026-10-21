@@ -118,6 +118,30 @@ async function pushEnable(){
   }catch(e){say('לא הצלחתי להפעיל התראות. נסה שוב.');}
 }
 function pushOn(){try{return localStorage.getItem('feder_push')==='1'&&pushSupported()&&Notification.permission==='granted';}catch(e){return false;}}
+var BELL=[];
+function bellSeen(){try{return +localStorage.getItem('feder_bell_seen')||0;}catch(e){return 0;}}
+async function loadBell(){
+  try{
+    var r=await sb.from('reminders').select('id,title,body,remind_at').eq('user_id',AUTH.uid).eq('sent',true).order('remind_at',{ascending:false}).limit(30);
+    if(r.data){var a=JSON.stringify(BELL.map(function(x){return x.id;}));BELL=r.data;if(a!==JSON.stringify(BELL.map(function(x){return x.id;})))render();}
+  }catch(e){}
+}
+function bellBtn(){
+  var seen=bellSeen(),n=BELL.filter(function(x){return Date.parse(x.remind_at)>seen;}).length;
+  return '<button class="bellbtn" data-act="bell" aria-label="התראות'+(n?' ('+n+' חדשות)':'')+'">'+ico('bell',26)+(n?'<span class="bdg">'+n+'</span>':'')+'</button>';
+}
+function openBell(){
+  var seen=bellSeen();
+  var html='<div class="scrim" data-act="closeSheet"></div><div class="sheet" role="dialog" aria-modal="true"><h2>התראות</h2>'+
+   (BELL.length?'<div class="stack" style="margin-bottom:12px">'+BELL.map(function(x){
+     var d=new Date(x.remind_at),isNew=d.getTime()>seen;
+     return '<div class="item" style="padding:10px 12px"><b>'+esc(x.title)+'</b>'+(isNew?' '+chip('warn','חדש'):'')+(x.body?'<br><span class="muted">'+esc(x.body)+'</span>':'')+'<br><span class="muted">'+d.toLocaleDateString('he-IL',{day:'numeric',month:'numeric'})+' · '+hm(d)+'</span></div>';
+   }).join('')+'</div>':'<p class="muted" style="margin-bottom:12px">עוד לא הגיעו התראות.</p>')+
+   '<div class="fbtns"><button class="btn btn-line" type="button" data-act="closeSheet">סגור</button></div></div>';
+  $('#layer').innerHTML=html;pushOverlay('sheet');
+  try{localStorage.setItem('feder_bell_seen',String(Date.now()));}catch(e){}
+  setTimeout(render,0);
+}
 function allEvents(){return S.events.concat(G.events);}
 var BLANK='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
@@ -151,6 +175,7 @@ var I={
  check:'<path d="M5 12l4 4 10-10"/>',
  people:'<circle cx="9" cy="8" r="3.5"/><path d="M3 20c0-3.5 2.7-6 6-6s6 2.5 6 6M16 11a3 3 0 100-6M18 14c2 .6 3 2.4 3 5"/>',
  receipt:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
+ bell:'<path d="M6 17V11a6 6 0 0 1 12 0v6l2 2H4z"/><path d="M10 21h4"/>',
  camera:'<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
  plus:'<path d="M12 5v14M5 12h14"/>',
  image:'<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="M21 16l-5-5-8 8"/>',
@@ -234,7 +259,7 @@ function vHome(){
   var dateStr=new Date().toLocaleDateString('he-IL',{weekday:'long',day:'numeric',month:'long'});
   var up=openT.slice().sort(function(a,b){return String(a.due||'9999').localeCompare(String(b.due||'9999'));}).slice(0,4);
   var first=(AUTH.name||'').split(' ')[0];
-  var h=bandHtml('שלום'+(first?', '+first:''),dateStr,{right:'<img class="logo" src="'+LOGO+'" alt="פדר - לבנות בראש שקט">'});
+  var h=bandHtml('שלום'+(first?', '+first:''),dateStr,{right:'<div style="display:flex;align-items:center;gap:10px">'+bellBtn()+'<img class="logo" src="'+LOGO+'" alt="פדר - לבנות בראש שקט"></div>'});
   h+='<main class="wrap">';
   h+='<div class="grid2 pull"><div class="card stat"><div class="k">הוצאות החודש</div><div class="v">'+money(monthSpent)+'</div></div>'+
      '<div class="card stat"><div class="k">משימות פתוחות</div><div class="v">'+openT.length+'</div></div></div>';
@@ -263,7 +288,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 11</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 12</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -935,6 +960,7 @@ document.addEventListener('click',function(ev){
   else if(a==='gdisc'){gDisconnect();}
   else if(a==='logout'){sb.auth.signOut();}
   else if(a==='pushon'){pushEnable();}
+  else if(a==='bell'){openBell();}
   else if(a==='reload'){location.reload();}
   else if(a==='signup'){doSignup();}
 });
@@ -1029,12 +1055,12 @@ async function boot(session){
   if(AUTH.role==='pending'){AUTH.state='pending';render();return;}
   AUTH.state='app';render();
   gRestore();if(!gReady())gSilent();
-  await loadAll();subscribe();
+  await loadAll();loadBell();subscribe();
 }
 sb.auth.onAuthStateChange(function(ev,session){
   if(ev==='INITIAL_SESSION'||ev==='SIGNED_IN'||ev==='SIGNED_OUT')setTimeout(function(){boot(session);},0);
 });
-setInterval(function(){if(AUTH.state==='app'&&!form&&!document.hidden)loadAll();},45000);
+setInterval(function(){if(AUTH.state==='app'&&!form&&!document.hidden)loadAll();loadBell();},45000);
 document.addEventListener('visibilitychange',function(){if(!document.hidden&&AUTH.state==='app'&&!form){loadAll();if(!gReady())gSilent();}});
 render();
 if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}
