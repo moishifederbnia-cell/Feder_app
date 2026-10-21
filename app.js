@@ -305,7 +305,7 @@ function supplierList(){
 function vSuppliers(){
   var h=bandHtml('ספקים',null,{right:'<button class="btn btn-accent" data-act="add" data-e="supplier">'+ico('plus',20)+'ספק חדש</button>'});
   h+='<main class="wrap" style="'+PULL+'">';
-  h+='<button class="btn btn-line" style="width:100%;margin-bottom:10px" data-act="import">'+ico('people',22)+'ייבוא מאנשי הקשר בטלפון</button>';
+  h+='<button class="btn btn-line" style="width:100%;margin:12px 0 10px;background:var(--surface)" data-act="import">'+ico('people',22)+'ייבוא מאנשי הקשר בטלפון</button>';
   h+='<label for="sq" class="sr">חיפוש ספק</label><input id="sq" class="search" type="search" placeholder="חפש ספק או תחום" value="'+esc(UI.supQuery)+'" autocomplete="off">';
   var fs=supplierFields();
   if(fs.length){h+='<div class="filters" style="margin-top:8px"><button class="fchip" data-act="sfield" data-v="" aria-pressed="'+(!UI.supField)+'">הכול</button>'+fs.map(function(f){return '<button class="fchip" data-act="sfield" data-v="'+esc(f)+'" aria-pressed="'+(UI.supField===f)+'">'+esc(f)+'</button>';}).join('')+'</div>';}
