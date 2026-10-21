@@ -93,11 +93,20 @@ function remindWhen(date,startTime,opt){
   if(!startTime&&m<1440)m=0;
   return new Date(base.getTime()-m*60000);
 }
-async function setReminder(ref,title,body,when){
+function toast(t){
+  var d=document.createElement('div');d.textContent=t;
+  d.style.cssText='position:fixed;left:12px;right:12px;bottom:96px;z-index:99;background:#384E69;color:#fff;padding:12px 14px;border-radius:12px;font-weight:700;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.3)';
+  document.body.appendChild(d);setTimeout(function(){d.remove();},5000);
+}
+async function setReminder(ref,title,body,when,wanted){
   try{
     await sb.from('reminders').delete().eq('ref',ref).eq('user_id',AUTH.uid);
-    if(when&&when.getTime()>Date.now())await sb.from('reminders').insert({user_id:AUTH.uid,ref:ref,title:title,body:body||'',remind_at:when.toISOString()});
-  }catch(e){}
+    if(!when){return;}
+    if(when.getTime()<=Date.now()){toast('התזכורת לא נשמרה: הזמן שלה כבר עבר.');return;}
+    var r=await sb.from('reminders').insert({user_id:AUTH.uid,ref:ref,title:title,body:body||'',remind_at:when.toISOString()});
+    if(r.error){toast('התזכורת לא נשמרה: '+(r.error.message||'שגיאה'));return;}
+    toast('תזכורת נקבעה ל-'+when.toLocaleDateString('he-IL',{day:'numeric',month:'numeric'})+' '+hm(when));
+  }catch(e){toast('התזכורת לא נשמרה: '+(e&&e.message||'שגיאה'));}
 }
 function pushSupported(){return 'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window;}
 function b64u(s){var p='='.repeat((4-s.length%4)%4),b=(s+p).replace(/-/g,'+').replace(/_/g,'/'),r=atob(b),o=new Uint8Array(r.length);for(var i=0;i<r.length;i++)o[i]=r.charCodeAt(i);return o;}
@@ -288,7 +297,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 12</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 13</div>';
   return h+'</main>';
 }
 function vProjects(){
