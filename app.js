@@ -90,6 +90,7 @@ var BLANK='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAE
 var MAP={projectId:'project_id',clientName:'client_name',clientPhone:'client_phone',supplierId:'supplier_id'};
 var RMAP={};Object.keys(MAP).forEach(function(k){RMAP[MAP[k]]=k;});
 function fromRow(r){var o={};Object.keys(r).forEach(function(k){o[RMAP[k]||k]=r[k];});o.createdAt=r.created_at?Date.parse(r.created_at):0;
+  if(r.done_at){o.doneDate=ymd(new Date(r.done_at));}
   if(r.start_at){var d=new Date(r.start_at);o.date=ymd(d);o.startTime=r.all_day?'':hm(d);o.endTime=(r.end_at&&!r.all_day)?hm(new Date(r.end_at)):'';}
   return o;}
 function ymd(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
@@ -217,7 +218,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 8</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 9</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -376,19 +377,40 @@ function vProject(){
 /* reports */
 function repHead(title,p){
   return '<div class="rhead"><img class="rlogo" src="icons/logo.png" alt=""><div><div class="rbrand">פדר בניה · לבנות בראש שקט</div><h1>'+esc(title)+'</h1></div></div>'+
-   '<div class="rmeta"><b>'+esc(p?p.name:'כל הפרויקטים')+'</b>'+(p&&p.address?' · '+esc(p.address):'')+(p&&p.clientName?'<br>לקוח: '+esc(p.clientName):'')+'<br>תאריך הדוח: '+esc(new Date().toLocaleDateString('he-IL',{day:'numeric',month:'long',year:'numeric'}))+'</div>';
+   '<div class="rmeta"><b>'+esc(p?p.name:'כל הפרויקטים')+'</b>'+(p&&p.address?' · '+esc(p.address):'')+(p&&p.clientName?'<br>לקוח: '+esc(p.clientName):'')+'<br>תאריך הדוח: '+esc(new Date().toLocaleDateString('he-IL',{day:'numeric',month:'long',year:'numeric'}))+'</div><!--INTRO-->';
 }
-function repTasks(title,list,cls){
+function daysBetween(a,b){return Math.round((pd(b)-pd(a))/86400000);}
+function taskState(t){
+  var td=todayStr();
+  if(t.status==='הושלם'){
+    if(t.due&&t.doneDate){return t.doneDate<=t.due?{txt:'עמד ביעד',cls:'okt'}:{txt:'לא עמד ביעד (איחור '+daysBetween(t.due,t.doneDate)+' ימים)',cls:'badt'};}
+    return {txt:'בוצע',cls:'okt'};
+  }
+  if(t.due)return t.due<td?{txt:'לא עמד ביעד (באיחור '+daysBetween(t.due,td)+' ימים)',cls:'badt'}:{txt:'בתוך היעד',cls:''};
+  return {txt:'ללא יעד',cls:''};
+}
+function repTasks(title,list,cls,kind){
   if(!list.length)return '';
-  return '<h2 class="'+cls+'">'+esc(title)+' ('+list.length+')</h2><table class="rt"><tbody>'+list.map(function(t){return '<tr><td>'+esc(t.title)+(t.notes?'<div class="rn">'+esc(t.notes)+'</div>':'')+'</td><td class="rd">'+(t.due?esc(fdate(t.due)):'')+'</td></tr>';}).join('')+'</tbody></table>';
+  var isDone=kind==='done';
+  return '<h2 class="'+cls+'">'+esc(title)+' ('+list.length+')</h2><table class="rt"><thead><tr><th>משימה</th><th class="rd">יעד</th>'+(isDone?'<th class="rd">בוצע ב</th>':'')+'<th class="rd">מצב</th></tr></thead><tbody>'+list.map(function(t){
+    var st=taskState(t);
+    return '<tr><td>'+esc(t.title)+(t.notes?'<div class="rn">'+esc(t.notes)+'</div>':'')+'</td><td class="rd">'+(t.due?esc(fdate(t.due)):'')+'</td>'+(isDone?'<td class="rd">'+(t.doneDate?esc(fdate(t.doneDate)):'')+'</td>':'')+'<td class="rd st '+st.cls+'">'+esc(st.txt)+'</td></tr>';}).join('')+'</tbody></table>';
+}
+function noteKey(part){return 'feder_rn_'+(UI.reportProject||'all')+'_'+(UI.reportType||'field')+'_'+part;}
+function noteGet(part){return lsGet(noteKey(part))||'';}
+function metLate(tasks){
+  var met=0,late=0;
+  tasks.forEach(function(t){if(!t.due)return;var st=taskState(t);if(st.cls==='badt')late++;else if(t.status==='הושלם')met++;});
+  return {met:met,late:late};
 }
 function repField(p){
   var tasks=S.tasks.filter(function(t){return t.projectId===p.id;});
   var done=tasks.filter(function(t){return t.status==='הושלם';}),prog=tasks.filter(function(t){return t.status==='בתהליך';}),todo=tasks.filter(function(t){return t.status==='לביצוע';});
   var pct=tasks.length?Math.round(done.length/tasks.length*100):0;
   var h=repHead('דוח מצב עבודה באתר',p);
-  h+='<div class="rsum"><div><b>'+pct+'%</b><span>הושלם</span></div><div><b>'+done.length+'</b><span>בוצע</span></div><div><b>'+prog.length+'</b><span>בתהליך</span></div><div><b>'+todo.length+'</b><span>נותר</span></div></div><div class="rbar"><i style="width:'+pct+'%"></i></div>';
-  h+=repTasks('בוצע',done,'ok')+repTasks('בתהליך',prog,'warn')+repTasks('נותר לביצוע',todo,'todo');
+  var ml=metLate(tasks);
+  h+='<div class="rsum"><div><b>'+pct+'%</b><span>הושלם</span></div><div><b>'+done.length+'</b><span>משימות שבוצעו</span></div><div><b>'+(prog.length+todo.length)+'</b><span>משימות שנותרו</span></div>'+((ml.met||ml.late)?'<div><b>'+ml.met+'</b><span>עמדו ביעד</span></div><div><b>'+ml.late+'</b><span>לא עמדו ביעד</span></div>':'')+'</div><div class="rbar"><i style="width:'+pct+'%"></i></div>';
+  h+=repTasks('משימות שבוצעו',done,'ok','done')+repTasks('משימות בתהליך',prog,'warn','open')+repTasks('משימות שנותרו לביצוע',todo,'todo','open');
   if(!tasks.length)h+='<p>עדיין לא הוגדרו משימות בפרויקט.</p>';
   if(UI.repPhotos!==false){
     var docs=S.docs.filter(function(d){return d.projectId===p.id&&d.photo;}).sort(function(a,b){return String(a.date||'').localeCompare(String(b.date||''));});
@@ -417,7 +439,7 @@ function repAllField(){
     return '<tr><td>'+esc(p.name)+'</td><td>'+esc(p.status||'')+'</td><td class="rd">'+(t.length?Math.round(d/t.length*100):0)+'%</td><td class="rd">'+d+' / '+(t.length-d)+'</td></tr>';}).join('')+'</tbody></table>';
   ps.forEach(function(p){
     var open=S.tasks.filter(function(t){return t.projectId===p.id&&t.status!=='הושלם';});
-    if(open.length)h+=repTasks(p.name+' · נותר לביצוע',sortTasks(open),'todo');
+    if(open.length)h+=repTasks(p.name+' · משימות שנותרו',sortTasks(open),'todo','open');
   });
   return h;
 }
@@ -433,6 +455,12 @@ function repAllFin(){
   if(vs.length)h+='<h2>ספקים מובילים</h2><table class="rt"><tbody>'+vs.map(function(v){return '<tr><td>'+esc(v)+'</td><td class="rd">'+money(byV[v])+'</td></tr>';}).join('')+'</tbody></table>';
   return h;
 }
+function noteWrap(body){
+  var i=noteGet('intro'),o=noteGet('outro');
+  var intro='<div class="rnote" data-rnshow="intro"'+(i?'':' style="display:none"')+'>'+esc(i)+'</div>';
+  var outro='<h2 data-rnh="outro"'+(o?'':' style="display:none"')+'>סיכום והערות</h2><div class="rnote" data-rnshow="outro"'+(o?'':' style="display:none"')+'>'+esc(o)+'</div>';
+  return body.replace('<!--INTRO-->',intro)+outro;
+}
 function vReport(){
   var p=UI.reportProject?byId('projects',UI.reportProject):null;
   var type=UI.reportType||'field';
@@ -440,9 +468,11 @@ function vReport(){
   h+='<main class="wrap" style="'+PULL+'"><div class="card noprint"><div class="fld"><label for="rproj" class="sr">פרויקט</label><select id="rproj" data-sel="reportProject"><option value="">כל הפרויקטים</option>'+sortedProjects().map(function(q){return '<option value="'+esc(q.id)+'"'+(UI.reportProject===q.id?' selected':'')+'>'+esc(q.name)+'</option>';}).join('')+'</select></div><div class="filters" style="padding-top:0">'+
     '<button class="fchip" data-act="rtype" data-v="field" aria-pressed="'+(type==='field')+'">מצב באתר</button><button class="fchip" data-act="rtype" data-v="fin" aria-pressed="'+(type==='fin')+'">דוח הוצאות</button></div>'+
     (type==='field'&&p?'<label class="chk"><input type="checkbox" data-rp="1"'+(UI.repPhotos!==false?' checked':'')+'> לכלול תמונות מהשטח</label>':'')+
+    '<div class="fld" style="margin-top:6px"><label for="rn_intro">הערות כלליות (בראש הדוח)</label><textarea id="rn_intro" data-rn="intro" placeholder="למשל: סיכום תקופה, עדכון ללקוח...">'+esc(noteGet('intro'))+'</textarea></div>'+
+    '<div class="fld"><label for="rn_outro">סיכום והמלצות (בסוף הדוח)</label><textarea id="rn_outro" data-rn="outro" placeholder="הצעדים הבאים, הערות...">'+esc(noteGet('outro'))+'</textarea></div>'+
     '<button class="btn btn-accent" style="width:100%;margin-top:6px" data-act="print">שמור כ-PDF / שתף</button>'+
     '<div class="muted" style="margin-top:8px">בחלון שייפתח בחר <b>שמירה כ-PDF</b> (Save as PDF) ואז שמור או שתף ללקוח.</div></div>'+
-    '<div class="rep">'+(type==='fin'?(p?repFin(p):repAllFin()):(p?repField(p):repAllField()))+'</div></main>';
+    '<div class="rep">'+noteWrap(type==='fin'?(p?repFin(p):repAllFin()):(p?repField(p):repAllField()))+'</div></main>';
   return h;
 }
 
@@ -700,6 +730,11 @@ async function submitForm(ev){
     }
     data[f.k]=v;
   }
+  if(form.e==='task'){
+    var exT=form.id?byId('tasks',form.id):null;
+    if(data.status==='הושלם'){if(!(exT&&exT.done_at))data.done_at=new Date().toISOString();}
+    else if(exT&&exT.done_at)data.done_at=null;
+  }
   if(form.e==='plan'){
     if(!form.id&&!form.file2){ferr('בחר קובץ.');return;}
     if(!data.title)data.title=form.file2?form.file2.name.replace(/\.[^.]+$/,''):'תוכנית';
@@ -812,7 +847,7 @@ document.addEventListener('click',function(ev){
   else if(a==='closeSheet'){closeSheet();}
   else if(a==='delete'){doDelete();}
   else if(a==='rmphoto'){if(form){form.removed=true;form.file=null;var p=$('#phprev');if(p)p.innerHTML=ico('camera',40);el.remove();}}
-  else if(a==='toggle'){var t=byId('tasks',id);if(t)sb.from('tasks').update({status:t.status==='הושלם'?'לביצוע':'הושלם'}).eq('id',id).then(function(){loadTable('tasks');});}
+  else if(a==='toggle'){var t=byId('tasks',id);if(t)sb.from('tasks').update(t.status==='הושלם'?{status:'לביצוע',done_at:null}:{status:'הושלם',done_at:new Date().toISOString()}).eq('id',id).then(function(){loadTable('tasks');});}
   else if(a==='cycle'){var o=byId('orders',id);if(o)sb.from('orders').update({status:ORD_NEXT[o.status]||'הוזמן'}).eq('id',id).then(function(){loadTable('orders');});}
   else if(a==='photo'){var lb=document.createElement('button');lb.className='lightbox';lb.setAttribute('aria-label','סגור תמונה');lb.innerHTML='<img src="'+purl(id)+'" alt="תמונה">';lb.onclick=function(){lb.remove();if(history.state&&history.state.lb)history.back();};document.body.appendChild(lb);pushOverlay('lb');}
   else if(a==='import'){startImport();}
@@ -856,6 +891,11 @@ document.addEventListener('change',function(ev){
   }else if(t.getAttribute&&t.getAttribute('data-sel')){UI[t.getAttribute('data-sel')]=t.value;render();}
 });
 document.addEventListener('input',function(ev){
+  if(ev.target.getAttribute&&ev.target.getAttribute('data-rn')){
+    var part=ev.target.getAttribute('data-rn'),v=ev.target.value;lsSet(noteKey(part),v);
+    var box=$('[data-rnshow="'+part+'"]');if(box){box.textContent=v;box.style.display=v?'':'none';}
+    var hh=$('[data-rnh="'+part+'"]');if(hh)hh.style.display=v?'':'none';
+  }
   if(ev.target.id==='sq'){UI.supQuery=ev.target.value;var l=$('#suplist');if(l)l.innerHTML=supplierList();}
 });
 document.addEventListener('submit',function(ev){

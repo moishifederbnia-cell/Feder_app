@@ -181,3 +181,7 @@ i.lg{width:10px;height:10px}
 }
 .tabs.t6{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}.tabs.t6 .tab{flex:none;padding:0 16px;white-space:nowrap}
 .ftype{flex:none;min-width:48px;height:44px;border-radius:10px;background:var(--info-bg);color:var(--info-ink);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px}
+.rnote{white-space:pre-wrap;background:#F4F1EA;border-radius:8px;padding:10px 12px;margin:10px 0;font-size:14px;line-height:1.5}
+.rt td.okt{color:#17613A;font-weight:700}.rt td.badt{color:#B3261E;font-weight:700}
+
+.rt td.st{white-space:normal;min-width:84px;font-size:13px}
