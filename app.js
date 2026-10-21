@@ -12,6 +12,66 @@ var UI={calMonth:null,calSel:null,view:'home',projectId:null,tab:'tasks',taskFil
 var form=null;
 var LOGO='icons/logo.png';
 var PHOTO={};
+var GCLIENT='1063410484052-87j7o27ouilgpomismvuvq3l8ov0o9g2.apps.googleusercontent.com';
+var G={token:null,exp:0,events:[],range:'',loading:false,err:''};
+function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
+function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+function gReady(){return !!G.token&&Date.now()<G.exp;}
+function gWasConnected(){return lsGet('feder_gcal')==='1';}
+function gConnect(){
+  if(!(window.google&&google.accounts&&google.accounts.oauth2)){G.err='שירות הכניסה של גוגל עדיין לא נטען. נסה שוב בעוד רגע.';render();return;}
+  var tc=google.accounts.oauth2.initTokenClient({client_id:GCLIENT,scope:'https://www.googleapis.com/auth/calendar.events',
+    callback:function(r){
+      if(r&&r.access_token){G.token=r.access_token;G.exp=Date.now()+((r.expires_in||3600)-60)*1000;G.err='';lsSet('feder_gcal','1');G.range='';render();}
+      else{G.err='החיבור ליומן גוגל לא הושלם.';render();}
+    },
+    error_callback:function(){G.err='החיבור ליומן גוגל בוטל או נחסם.';render();}});
+  tc.requestAccessToken({prompt:gWasConnected()?'':'consent'});
+}
+function gDisconnect(){G.token=null;G.exp=0;G.events=[];G.range='';lsSet('feder_gcal','0');render();}
+function gApi(method,path,body){
+  return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events'+path,{method:method,headers:{'Authorization':'Bearer '+G.token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined}).then(function(res){
+    if(res.status===401){G.token=null;G.exp=0;throw {code:'auth'};}
+    if(!res.ok)throw {code:'http'+res.status};
+    return res.status===204?null:res.json();
+  });
+}
+function gMonthKey(){var m=(UI.view==='calendar'&&UI.calMonth)?UI.calMonth:new Date();return m.getFullYear()+'-'+m.getMonth();}
+function gEnsure(){
+  if(!gReady()||G.loading||(UI.view!=='calendar'&&UI.view!=='home'))return;
+  if(G.range===gMonthKey())return;
+  gLoad();
+}
+function gLoad(){
+  var m=(UI.view==='calendar'&&UI.calMonth)?UI.calMonth:new Date();
+  var from=new Date(m.getFullYear(),m.getMonth(),1-7),to=new Date(m.getFullYear(),m.getMonth()+1,8);
+  var key=gMonthKey();G.loading=true;
+  return gApi('GET','?singleEvents=true&orderBy=startTime&maxResults=250&timeMin='+encodeURIComponent(from.toISOString())+'&timeMax='+encodeURIComponent(to.toISOString())).then(function(d){
+    var out=[];
+    (d.items||[]).forEach(function(it){
+      if(it.status==='cancelled')return;
+      var base={gid:it.id,google:true,title:it.summary||'(ללא כותרת)',location:it.location||'',notes:it.description||'',projectId:(it.extendedProperties&&it.extendedProperties.private&&it.extendedProperties.private.feder_project)||''};
+      if(it.start&&it.start.dateTime){
+        var a=new Date(it.start.dateTime),b=it.end&&it.end.dateTime?new Date(it.end.dateTime):null;
+        out.push(Object.assign({id:'g:'+it.id,date:ymd(a),startTime:hm(a),endTime:b?hm(b):''},base));
+      }else if(it.start&&it.start.date){
+        var d0=pd(it.start.date),d1=it.end&&it.end.date?pd(it.end.date):new Date(d0.getTime()+86400000),n=0;
+        for(var x=new Date(d0);x<d1&&n<31;x=new Date(x.getFullYear(),x.getMonth(),x.getDate()+1),n++){
+          out.push(Object.assign({id:'g:'+it.id,date:ymd(x),startTime:'',endTime:''},base));
+        }
+      }
+    });
+    G.events=out;G.range=key;G.loading=false;G.err='';render();
+  }).catch(function(e){G.loading=false;G.range=key;G.err=(e&&e.code==='auth')?'החיבור ליומן גוגל פג. לחץ לחיבור מחדש.':'לא הצלחנו לטעון את יומן גוגל.';render();});
+}
+function gBody(ev){
+  var body={summary:ev.title,description:ev.notes||'',location:ev.location||''};
+  if(ev.projectId)body.extendedProperties={private:{feder_project:ev.projectId}};
+  if(!ev.startTime){var d=pd(ev.date);body.start={date:ev.date};body.end={date:ymd(new Date(d.getFullYear(),d.getMonth(),d.getDate()+1))};}
+  else{var s0=new Date(ev.date+'T'+ev.startTime),e0=ev.endTime?new Date(ev.date+'T'+ev.endTime):new Date(s0.getTime()+3600000);body.start={dateTime:s0.toISOString()};body.end={dateTime:e0.toISOString()};}
+  return body;
+}
+function allEvents(){return S.events.concat(G.events);}
 var BLANK='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 var MAP={projectId:'project_id',clientName:'client_name',clientPhone:'client_phone',supplierId:'supplier_id'};
@@ -29,7 +89,7 @@ function money(n){n=Number(n)||0;return '₪'+n.toLocaleString('he-IL',{maximumF
 function todayStr(){var d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function pd(s){if(!s)return null;var p=String(s).split('-');if(p.length<3)return null;return new Date(+p[0],+p[1]-1,+p[2]);}
 function fdate(s){var d=pd(s);if(!d)return '';var o={day:'numeric',month:'long'};if(d.getFullYear()!==new Date().getFullYear())o.year='numeric';return d.toLocaleDateString('he-IL',o);}
-function byId(col,id){for(var i=0;i<S[col].length;i++)if(S[col][i].id===id)return S[col][i];return null;}
+function byId(col,id){for(var i=0;i<S[col].length;i++)if(S[col][i].id===id)return S[col][i];if(col==='events'){for(var j=0;j<G.events.length;j++)if(G.events[j].id===id)return G.events[j];}return null;}
 function pname(id){var p=byId('projects',id);return p?p.name:'פרויקט שנמחק';}
 function sum(a){return a.reduce(function(t,x){return t+(Number(x.amount)||0);},0);}
 function chip(cls,t){return '<span class="chip c-'+cls+'">'+esc(t)+'</span>';}
@@ -132,7 +192,7 @@ function vHome(){
      '<button class="act a2" data-act="add" data-e="task">'+ico('plus',30)+'משימה חדשה</button>'+
      '<button class="act a3" data-act="add" data-e="doc">'+ico('image',30)+'תיעוד</button></div>';
   if(toOrder){h+='<div class="card" style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span><b>'+toOrder+'</b> פריטים עדיין לא הוזמנו</span><button class="link" data-act="nav" data-v="projects">לפרויקטים</button></div>';}
-  var todayEv=S.events.filter(function(e){return e.date===todayStr();}).sort(evSort);
+  var todayEv=allEvents().filter(function(e){return e.date===todayStr();}).sort(evSort);
   if(todayEv.length)h+='<div class="sec"><h2>היום ביומן</h2><button class="link" data-act="nav" data-v="calendar">ליומן</button></div><div class="stack">'+todayEv.slice(0,3).map(evRow).join('')+'</div>';
   h+='<div class="sec"><h2>משימות קרובות</h2><button class="link" data-act="nav" data-v="tasks">הכול</button></div>';
   if(up.length){h+='<div class="stack">'+up.map(taskRow.bind(null,true,true)).join('')+'</div>';}
@@ -281,7 +341,7 @@ function vProject(){
 function evSort(a,b){return String(a.startTime||'').localeCompare(String(b.startTime||''));}
 function evRow(e){
   var t=e.startTime?e.startTime+(e.endTime?'–'+e.endTime:''):'כל היום';
-  return '<div class="item"><div class="evtime ltr">'+esc(t)+'</div><button class="main" data-act="edit" data-e="event" data-id="'+esc(e.id)+'"><div class="t">'+esc(e.title)+'</div><div class="muted">'+(e.projectId?esc(pname(e.projectId))+(e.location?' · ':''):'')+esc(e.location||'')+(e.google_id?' · יומן גוגל':'')+'</div></button></div>';
+  return '<div class="item"><div class="evtime ltr">'+esc(t)+'</div><button class="main" data-act="edit" data-e="event" data-id="'+esc(e.id)+'"><div class="t">'+esc(e.title)+'</div><div class="muted">'+(e.projectId?esc(pname(e.projectId))+(e.location?' · ':''):'')+esc(e.location||'')+(e.google?' · יומן גוגל':'')+'</div></button></div>';
 }
 function vCalendar(){
   var now=new Date();
@@ -290,10 +350,14 @@ function vCalendar(){
   var title=m.toLocaleDateString('he-IL',{month:'long',year:'numeric'});
   var y=m.getFullYear(),mo=m.getMonth(),lead=m.getDay(),days=new Date(y,mo+1,0).getDate(),today=todayStr();
   var evBy={},tkBy={};
-  S.events.forEach(function(e){(evBy[e.date]=evBy[e.date]||[]).push(e);});
+  allEvents().forEach(function(e){(evBy[e.date]=evBy[e.date]||[]).push(e);});
   S.tasks.forEach(function(t){if(t.due&&t.status!=='הושלם')(tkBy[t.due]=tkBy[t.due]||[]).push(t);});
   var h=bandHtml('יומן',null,{right:'<button class="btn btn-accent" data-act="add" data-e="event">'+ico('plus',20)+'אירוע</button>'});
-  h+='<main class="wrap" style="'+PULL+'"><div class="card">';
+  h+='<main class="wrap" style="'+PULL+'">';
+  if(G.err)h+='<div class="demo" style="margin:0 0 10px;background:var(--warn-bg);color:var(--warn-ink)"><span>'+esc(G.err)+'</span></div>';
+  if(!gReady())h+='<div class="card" style="margin-bottom:10px;display:flex;align-items:center;justify-content:space-between;gap:10px"><span>'+(gWasConnected()?'החיבור ליומן גוגל פג.':'רוצה לראות כאן גם את יומן גוגל?')+'</span><button class="btn btn-navy" style="min-height:42px;font-size:15px" data-act="gconnect">'+(gWasConnected()?'חבר מחדש':'חבר יומן גוגל')+'</button></div>';
+  else h+='<div class="muted" style="margin-bottom:8px;display:flex;justify-content:space-between"><span>מחובר ליומן גוגל'+(G.loading?' · טוען…':'')+'</span><button class="link" data-act="gdisc">נתק</button></div>';
+  h+='<div class="card">';
   h+='<div class="calhead"><button class="calnav" data-act="cmonth" data-v="-1" aria-label="חודש קודם">'+ico('back',22)+'</button><div class="caltitle">'+esc(title)+'</div><button class="calnav" data-act="cmonth" data-v="1" aria-label="חודש הבא" style="transform:scaleX(-1)">'+ico('back',22)+'</button></div>';
   h+='<div class="cal">'+['א','ב','ג','ד','ה','ו','ש'].map(function(d){return '<div class="cdn">'+d+'</div>';}).join('');
   for(var i=0;i<lead;i++)h+='<div></div>';
@@ -411,6 +475,7 @@ function draw(){
     else if(v==='suppliers')h=vSuppliers();else if(v==='expenses')h=vExpenses();else if(v==='calendar')h=vCalendar();else if(v==='users')h=vUsers();else h=vHome();
     app.innerHTML=h+navHtml();
   }
+  if(isStaff())gEnsure();
   if(typed&&$('#msgin'))$('#msgin').value=typed;
   window.scrollTo(0,y);
   if((aid==='msgin'||aid==='sq')&&$('#'+aid)){var n=$('#'+aid);n.focus({preventScroll:true});}
@@ -492,13 +557,19 @@ async function submitForm(ev){
     data[f.k]=v;
   }
   if(form.e==='event'){
-    var st=data.startTime,en=data.endTime;
+    var evRaw=data;var st=data.startTime,en=data.endTime;
     var sdt=new Date(data.date+'T'+(st||'00:00')),edt=en?new Date(data.date+'T'+en):null;
     if(edt&&edt<sdt){ferr('שעת הסיום לפני ההתחלה.');return;}
     data={title:data.title,notes:data.notes,location:data.location,projectId:data.projectId,all_day:!st,start_at:sdt.toISOString(),end_at:edt?edt.toISOString():null};
   }
   form.busy=true;var btn=$('#fsave');if(btn){btn.disabled=true;btn.textContent='שומר…';}
   try{
+    if(form.e==='event'&&((form.id&&String(form.id).indexOf('g:')===0)||(!form.id&&gReady()))){
+      if(!gReady())throw {code:'auth'};
+      var gb=gBody(evRaw);
+      if(form.id)await gApi('PATCH','/'+encodeURIComponent(String(form.id).slice(2)),gb);else await gApi('POST','',gb);
+      G.range='';closeSheet();await gLoad();return;
+    }
     var hasPhoto=cfg.fields.some(function(f){return f.t==='photo';});
     if(hasPhoto){
       if(form.file){
@@ -516,7 +587,7 @@ async function submitForm(ev){
     closeSheet();
   }catch(err){
     form.busy=false;if(btn){btn.disabled=false;btn.textContent='שמור';}
-    ferr('השמירה לא הצליחה. נסה שוב.');
+    ferr(err&&err.code==='auth'?'החיבור לגוגל פג. חזור ליומן ולחץ חבר מחדש.':'השמירה לא הצליחה. נסה שוב.');
   }
 }
 async function doDelete(){
@@ -525,6 +596,7 @@ async function doDelete(){
   if(!form.confirmDel){form.confirmDel=true;btn.textContent=form.e==='project'?'לחץ שוב: ימחק גם את כל המשימות, ההוצאות והתיעוד':'לחץ שוב למחיקה';return;}
   btn.disabled=true;var cfg=F[form.e],id=form.id,e=form.e;
   try{
+    if(e==='event'&&String(id).indexOf('g:')===0){if(!gReady())throw {code:'auth'};await gApi('DELETE','/'+encodeURIComponent(String(id).slice(2)));G.range='';closeSheet();await gLoad();return;}
     var r=await sb.from(cfg.col).delete().eq('id',id);if(r.error)throw r.error;
     if(e==='project'){if(UI.view==='project')UI.view='projects';await loadAll();}else await loadTable(cfg.col);
     closeSheet();
@@ -558,6 +630,8 @@ document.addEventListener('click',function(ev){
   else if(a==='toggle'){var t=byId('tasks',id);if(t)sb.from('tasks').update({status:t.status==='הושלם'?'לביצוע':'הושלם'}).eq('id',id).then(function(){loadTable('tasks');});}
   else if(a==='cycle'){var o=byId('orders',id);if(o)sb.from('orders').update({status:ORD_NEXT[o.status]||'הוזמן'}).eq('id',id).then(function(){loadTable('orders');});}
   else if(a==='photo'){var lb=document.createElement('button');lb.className='lightbox';lb.setAttribute('aria-label','סגור תמונה');lb.innerHTML='<img src="'+purl(id)+'" alt="תמונה">';lb.onclick=function(){lb.remove();};document.body.appendChild(lb);}
+  else if(a==='gconnect'){gConnect();}
+  else if(a==='gdisc'){gDisconnect();}
   else if(a==='logout'){sb.auth.signOut();}
   else if(a==='reload'){location.reload();}
   else if(a==='signup'){doSignup();}
