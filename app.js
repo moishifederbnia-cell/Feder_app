@@ -210,7 +210,7 @@ var F={
  expense:{title:'הוצאה / קבלה',col:'expenses',fields:[
   {k:'photo',l:'תמונת הקבלה',t:'photo'},{k:'projectId',l:'פרויקט',t:'project',req:1},
   {k:'vendor',l:'ספק',t:'text',list:'suppliers',req:1},{k:'amount',l:'סכום (₪)',t:'number',req:1},
-  {k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'הערה',t:'text'}]},
+  {k:'pay',l:'אמצעי תשלום',t:'select',o:['לא צוין','מזומן','אשראי'],d:'מזומן'},{k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'הערה',t:'text'}]},
  supplier:{title:'ספק',col:'suppliers',fields:[
   {k:'name',l:'שם הספק / החנות',t:'text',req:1},{k:'field',l:'תחום / קטגוריה',t:'text',list:'fields'},
   {k:'phone',l:'טלפון החנות',t:'tel'},{k:'contacts',l:'אנשי קשר',t:'contacts'},{k:'notes',l:'הערות',t:'textarea'}]},
@@ -270,8 +270,9 @@ function vHome(){
   var first=(AUTH.name||'').split(' ')[0];
   var h=bandHtml('שלום'+(first?', '+first:''),dateStr,{right:'<div style="display:flex;align-items:center;gap:10px">'+bellBtn()+'<img class="logo" src="'+LOGO+'" alt="פדר - לבנות בראש שקט"></div>'});
   h+='<main class="wrap">';
-  h+='<div class="grid2 pull"><div class="card stat"><div class="k">הוצאות החודש</div><div class="v">'+money(monthSpent)+'</div></div>'+
-     '<div class="card stat"><div class="k">משימות פתוחות</div><div class="v">'+openT.length+'</div></div></div>';
+  var doneN=S.tasks.filter(function(t){return t.status==='הושלם';}).length;
+  h+='<div class="grid2 pull"><button class="card stat" style="text-align:start;cursor:pointer" data-act="tasksby" data-v="done"><div class="k">משימות שהושלמו</div><div class="v">'+doneN+'</div></button>'+
+     '<button class="card stat" style="text-align:start;cursor:pointer" data-act="tasksby" data-v="open"><div class="k">משימות שלא הושלמו</div><div class="v">'+openT.length+'</div></button></div>';
   h+='<div class="grid3" style="margin-top:14px">'+
      '<button class="act a1" data-act="add" data-e="expense">'+ico('camera',30)+'צלם קבלה</button>'+
      '<button class="act a2" data-act="add" data-e="task">'+ico('plus',30)+'משימה חדשה</button>'+
@@ -297,7 +298,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 14</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 15</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -338,7 +339,7 @@ function vTasks(){
 
 function expRow(showProj,x){
   return '<div class="item">'+(x.photo?'<button class="thumb" data-act="photo" data-id="'+esc(x.photo)+'" aria-label="הצג קבלה"><img class="thumb" src="'+purl(x.photo)+'" alt=""></button>':'')+
-   '<button class="main" data-act="edit" data-e="expense" data-id="'+esc(x.id)+'"><div class="t">'+esc(x.vendor)+'</div><div class="muted">'+(showProj?esc(pname(x.projectId))+' · ':'')+fdate(x.date)+(x.note?' · '+esc(x.note):'')+'</div></button>'+
+   '<button class="main" data-act="edit" data-e="expense" data-id="'+esc(x.id)+'"><div class="t">'+esc(x.vendor)+'</div><div class="muted">'+(showProj?esc(pname(x.projectId))+' · ':'')+fdate(x.date)+(x.pay?' · '+esc(x.pay):'')+(x.note?' · '+esc(x.note):'')+'</div></button>'+
    '<div class="amt">'+money(x.amount)+'</div></div>';
 }
 function sortExp(a){return a.slice().sort(function(x,y){return String(y.date||'').localeCompare(String(x.date||''));});}
@@ -503,7 +504,7 @@ function repFin(p){
   ex.forEach(function(x){byV[x.vendor||'אחר']=(byV[x.vendor||'אחר']||0)+(Number(x.amount)||0);});
   var h=repHead('דוח הוצאות',p);
   h+='<div class="rsum">'+(bud?'<div><b>'+money(bud)+'</b><span>תקציב</span></div>':'')+'<div><b>'+money(tot)+'</b><span>הוצאות עד כה</span></div>'+(bud?'<div><b>'+money(bud-tot)+'</b><span>יתרה</span></div>':'')+'<div><b>'+ex.length+'</b><span>תנועות</span></div></div>';
-  h+='<h2>פירוט הוצאות</h2>'+(ex.length?'<table class="rt"><thead><tr><th>תאריך</th><th>ספק</th><th>פירוט</th><th class="rd">סכום</th></tr></thead><tbody>'+ex.map(function(x){return '<tr><td>'+esc(fdate(x.date))+'</td><td>'+esc(x.vendor||'')+'</td><td>'+esc(x.note||'')+'</td><td class="rd">'+money(x.amount)+'</td></tr>';}).join('')+'<tr class="rtot"><td colspan="3">סה״כ</td><td class="rd">'+money(tot)+'</td></tr></tbody></table>':'<p>אין הוצאות בפרויקט.</p>');
+  h+='<h2>פירוט הוצאות</h2>'+(ex.length?'<table class="rt"><thead><tr><th>תאריך</th><th>ספק</th><th>פירוט</th><th>תשלום</th><th class="rd">סכום</th></tr></thead><tbody>'+ex.map(function(x){return '<tr><td>'+esc(fdate(x.date))+'</td><td>'+esc(x.vendor||'')+'</td><td>'+esc(x.note||'')+'</td><td>'+esc(x.pay||'')+'</td><td class="rd">'+money(x.amount)+'</td></tr>';}).join('')+'<tr class="rtot"><td colspan="4">סה״כ</td><td class="rd">'+money(tot)+'</td></tr></tbody></table>':'<p>אין הוצאות בפרויקט.</p>');
   var vs=Object.keys(byV).sort(function(a,b){return byV[b]-byV[a];});
   if(vs.length>1)h+='<h2>סיכום לפי ספק</h2><table class="rt"><tbody>'+vs.map(function(v){return '<tr><td>'+esc(v)+'</td><td class="rd">'+money(byV[v])+'</td></tr>';}).join('')+'</tbody></table>';
   return h;
@@ -614,7 +615,7 @@ function vUsers(){
 /* accountant (expenses only) */
 function expRowRO(x){
   return '<div class="item">'+(x.photo?'<button class="thumb" data-act="photo" data-id="'+esc(x.photo)+'" aria-label="הצג קבלה"><img class="thumb" src="'+purl(x.photo)+'" alt=""></button>':'')+
-   '<div class="main"><div class="t">'+esc(x.vendor)+'</div><div class="muted">'+esc(pname(x.projectId))+' · '+fdate(x.date)+(x.note?' · '+esc(x.note):'')+'</div></div><div class="amt">'+money(x.amount)+'</div></div>';
+   '<div class="main"><div class="t">'+esc(x.vendor)+'</div><div class="muted">'+esc(pname(x.projectId))+' · '+fdate(x.date)+(x.pay?' · '+esc(x.pay):'')+(x.note?' · '+esc(x.note):'')+'</div></div><div class="amt">'+money(x.amount)+'</div></div>';
 }
 function vAccountant(){
   var list=S.expenses.filter(function(x){return !UI.expProject||x.projectId===UI.expProject;});
@@ -809,6 +810,7 @@ async function submitForm(ev){
     }
     data[f.k]=v;
   }
+  if(form.e==='expense'&&data.pay==='לא צוין')data.pay=null;
   var taskRemind=null,taskId=null,evId=null;
   if(form.e==='task'){
     taskRemind=data.remind;delete data.remind;
@@ -925,7 +927,8 @@ async function doImport(){
 document.addEventListener('click',function(ev){
   var el=ev.target.closest('[data-act]');if(!el)return;
   var a=el.getAttribute('data-act'),id=el.getAttribute('data-id');
-  if(a==='nav'){UI.view=el.getAttribute('data-v');window.scrollTo(0,0);render();}
+  if(a==='tasksby'){UI.taskFilter=el.getAttribute('data-v');UI.view='tasks';window.scrollTo(0,0);render();}
+  else if(a==='nav'){UI.view=el.getAttribute('data-v');window.scrollTo(0,0);render();}
   else if(a==='project'){UI.projectId=id;UI.view='project';UI.tab='tasks';window.scrollTo(0,0);render();}
   else if(a==='cmonth'){var cm=UI.calMonth||new Date();UI.calMonth=new Date(cm.getFullYear(),cm.getMonth()+(+el.getAttribute('data-v')),1);render();}
   else if(a==='cday'){UI.calSel=el.getAttribute('data-v');render();}
