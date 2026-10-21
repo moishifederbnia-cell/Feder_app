@@ -79,16 +79,45 @@ function gLoad(){
 }
 function gBody(ev){
   var body={summary:ev.title,description:ev.notes||'',location:ev.location||''};
-  var RM={'בזמן האירוע':0,'10 דקות לפני':10,'30 דקות לפני':30,'שעה לפני':60,'יום לפני':1440,'יומיים לפני':2880};
-  if(ev.remind&&ev.remind!=='ללא'&&RM[ev.remind]!==undefined){
-    var mm=RM[ev.remind];if(!ev.startTime&&mm<1440)mm=mm===0?0:540;
-    body.reminders={useDefault:false,overrides:[{method:'popup',minutes:mm}]};
-  }
   if(ev.projectId)body.extendedProperties={private:{feder_project:ev.projectId}};
   if(!ev.startTime){var d=pd(ev.date);body.start={date:ev.date};body.end={date:ymd(new Date(d.getFullYear(),d.getMonth(),d.getDate()+1))};}
   else{var s0=new Date(ev.date+'T'+ev.startTime),e0=ev.endTime?new Date(ev.date+'T'+ev.endTime):new Date(s0.getTime()+3600000);body.start={dateTime:s0.toISOString()};body.end={dateTime:e0.toISOString()};}
   return body;
 }
+var VAPID='BHE_9uosyXwJ9gzXq_0yQK3M6SIdmFE9ea5l3rwm_7XAnzBl4MbPFNHcRNHvGqonCCpm02vh6HbCkx_RyMTSQHk';
+var RMIN={'בזמן האירוע':0,'10 דקות לפני':10,'30 דקות לפני':30,'שעה לפני':60,'יום לפני':1440,'יומיים לפני':2880};
+function remindWhen(date,startTime,opt){
+  if(!opt||opt==='ללא'||RMIN[opt]===undefined)return null;
+  var m=RMIN[opt];
+  var base=startTime?new Date(date+'T'+startTime):new Date(date+'T08:00');
+  if(!startTime&&m<1440)m=0;
+  return new Date(base.getTime()-m*60000);
+}
+async function setReminder(ref,title,body,when){
+  try{
+    await sb.from('reminders').delete().eq('ref',ref).eq('user_id',AUTH.uid);
+    if(when&&when.getTime()>Date.now())await sb.from('reminders').insert({user_id:AUTH.uid,ref:ref,title:title,body:body||'',remind_at:when.toISOString()});
+  }catch(e){}
+}
+function pushSupported(){return 'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window;}
+function b64u(s){var p='='.repeat((4-s.length%4)%4),b=(s+p).replace(/-/g,'+').replace(/_/g,'/'),r=atob(b),o=new Uint8Array(r.length);for(var i=0;i<r.length;i++)o[i]=r.charCodeAt(i);return o;}
+async function pushEnable(){
+  var st=$('#pushst');function say(t){if(st)st.textContent=t;}
+  if(!pushSupported()){say('הדפדפן הזה לא תומך בהתראות. פתח מ-Chrome באפליקציה המותקנת.');return;}
+  try{
+    var perm=await Notification.requestPermission();
+    if(perm!=='granted'){say('ההתראות נחסמו. אפשר לאשר אותן בהגדרות הטלפון > אפליקציות > פדר > התראות.');return;}
+    var reg=await navigator.serviceWorker.ready;
+    var sub=await reg.pushManager.getSubscription();
+    if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64u(VAPID)});
+    var r=await sb.from('push_subscriptions').upsert({endpoint:sub.endpoint,user_id:AUTH.uid,sub:sub.toJSON()});
+    if(r.error)throw r.error;
+    try{localStorage.setItem('feder_push','1');}catch(e){}
+    say('ההתראות פעילות במכשיר הזה ✓');
+    reg.showNotification('פדר בניה',{body:'ההתראות מחוברות. כך ייראו התזכורות.',icon:'icons/icon-192.png'});
+  }catch(e){say('לא הצלחתי להפעיל התראות. נסה שוב.');}
+}
+function pushOn(){try{return localStorage.getItem('feder_push')==='1'&&pushSupported()&&Notification.permission==='granted';}catch(e){return false;}}
 function allEvents(){return S.events.concat(G.events);}
 var BLANK='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
@@ -218,6 +247,7 @@ function vHome(){
   var tdy=todayStr(),tmr=ymd(new Date(Date.now()+86400000));
   var late=openT.filter(function(t){return t.due&&t.due<tdy;}),dueT=openT.filter(function(t){return t.due===tdy;}),dueN=openT.filter(function(t){return t.due===tmr;});
   var delT=S.orders.filter(function(o){return o.status==='הוזמן';}).length;
+  if(!pushOn()&&pushSupported())h+='<div class="card" style="margin-top:12px"><b>התראות לטלפון</b><div class="muted" style="margin:4px 0 8px">כדי לקבל תזכורות לפגישות ולמשימות גם כשהאפליקציה סגורה.</div><button class="btn btn-accent" data-act="pushon">הפעל התראות</button><div class="muted" id="pushst" style="margin-top:6px"></div></div>';
   if(late.length||dueT.length||dueN.length){
     h+='<div class="card" style="margin-top:12px;border-inline-start:5px solid var(--accent,#F7941D)"><b>תזכורות</b><div style="margin-top:6px;line-height:1.7">'+
       (late.length?'<div>⚠️ '+late.length+' משימות באיחור</div>':'')+
@@ -233,7 +263,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 10</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 11</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -745,9 +775,10 @@ async function submitForm(ev){
     }
     data[f.k]=v;
   }
-  var taskRemind=null;
+  var taskRemind=null,taskId=null,evId=null;
   if(form.e==='task'){
     taskRemind=data.remind;delete data.remind;
+    var taskId=form.id||(window.crypto&&crypto.randomUUID?crypto.randomUUID():String(Date.now()));if(!form.id)data.id=taskId;
     var exT=form.id?byId('tasks',form.id):null;
     if(data.status==='הושלם'){if(!(exT&&exT.done_at))data.done_at=new Date().toISOString();}
     else if(exT&&exT.done_at)data.done_at=null;
@@ -761,13 +792,17 @@ async function submitForm(ev){
     var sdt=new Date(data.date+'T'+(st||'00:00')),edt=en?new Date(data.date+'T'+en):null;
     if(edt&&edt<sdt){ferr('שעת הסיום לפני ההתחלה.');return;}
     data={title:data.title,notes:data.notes,location:data.location,projectId:data.projectId,all_day:!st,start_at:sdt.toISOString(),end_at:edt?edt.toISOString():null};
+    evId=form.id||(window.crypto&&crypto.randomUUID?crypto.randomUUID():String(Date.now()));if(!form.id)data.id=evId;
   }
   form.busy=true;var btn=$('#fsave');if(btn){btn.disabled=true;btn.textContent='שומר…';}
   try{
     if(form.e==='event'&&((form.id&&String(form.id).indexOf('g:')===0)||(!form.id&&gReady()))){
       if(!gReady())throw {code:'auth'};
       var gb=gBody(evRaw);
-      if(form.id)await gApi('PATCH','/'+encodeURIComponent(String(form.id).slice(2)),gb);else await gApi('POST','',gb);
+      var gres;
+      if(form.id)gres=await gApi('PATCH','/'+encodeURIComponent(String(form.id).slice(2)),gb);else gres=await gApi('POST','',gb);
+      var gid=form.id?String(form.id):(gres&&gres.id?'g:'+gres.id:'g:'+Date.now());
+      await setReminder('ev:'+gid,evRaw.title,(evRaw.startTime?'בשעה '+evRaw.startTime:'כל היום')+(evRaw.location?' · '+evRaw.location:''),remindWhen(evRaw.date,evRaw.startTime,evRaw.remind));
       G.range='';closeSheet();await gLoad();return;
     }
     if(form.e==='plan'&&form.file2){
@@ -791,16 +826,17 @@ async function submitForm(ev){
     }
     var q=form.id?sb.from(cfg.col).update(toRow(data)).eq('id',form.id):sb.from(cfg.col).insert(toRow(data));
     var r=await q;if(r.error)throw r.error;
-    if(form.e==='task'&&taskRemind&&taskRemind!=='ללא'&&data.due&&data.status!=='הושלם'){
-      if(gReady()){
-        try{
-          var morning=taskRemind.indexOf('בבוקר')===0;
-          var dd=pd(data.due);if(!morning)dd=new Date(dd.getFullYear(),dd.getMonth(),dd.getDate()-1);
-          var ds=ymd(dd),tm=morning?'08:00':'18:00';
-          await gApi('POST','',gBody({title:'משימה: '+data.title,notes:data.notes||'',projectId:data.projectId,date:ds,startTime:tm,endTime:morning?'08:30':'18:30',remind:'בזמן האירוע'}));
-          G.range='';gLoad();
-        }catch(e2){}
+    if(form.e==='task'){
+      var tw=null;
+      if(data.due&&data.status!=='הושלם'&&taskRemind&&taskRemind!=='ללא'){
+        var morning=taskRemind.indexOf('בבוקר')===0;
+        var dd=pd(data.due);if(!morning)dd=new Date(dd.getFullYear(),dd.getMonth(),dd.getDate()-1);
+        tw=new Date(ymd(dd)+'T'+(morning?'08:00':'18:00'));
       }
+      await setReminder('task:'+taskId,'משימה: '+data.title,tw&&morning?'להיום':'למחר',tw);
+    }
+    if(form.e==='event'&&!(form.id&&String(form.id).indexOf('g:')===0)){
+      await setReminder('ev:'+(evId||''),evRaw.title,(evRaw.startTime?'בשעה '+evRaw.startTime:'כל היום'),remindWhen(evRaw.date,evRaw.startTime,evRaw.remind));
     }
     await loadTable(cfg.col);
     closeSheet();
@@ -898,6 +934,7 @@ document.addEventListener('click',function(ev){
   else if(a==='gconnect'){gConnect();}
   else if(a==='gdisc'){gDisconnect();}
   else if(a==='logout'){sb.auth.signOut();}
+  else if(a==='pushon'){pushEnable();}
   else if(a==='reload'){location.reload();}
   else if(a==='signup'){doSignup();}
 });
