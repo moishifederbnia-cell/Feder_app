@@ -79,6 +79,11 @@ function gLoad(){
 }
 function gBody(ev){
   var body={summary:ev.title,description:ev.notes||'',location:ev.location||''};
+  var RM={'בזמן האירוע':0,'10 דקות לפני':10,'30 דקות לפני':30,'שעה לפני':60,'יום לפני':1440,'יומיים לפני':2880};
+  if(ev.remind&&ev.remind!=='ללא'&&RM[ev.remind]!==undefined){
+    var mm=RM[ev.remind];if(!ev.startTime&&mm<1440)mm=mm===0?0:540;
+    body.reminders={useDefault:false,overrides:[{method:'popup',minutes:mm}]};
+  }
   if(ev.projectId)body.extendedProperties={private:{feder_project:ev.projectId}};
   if(!ev.startTime){var d=pd(ev.date);body.start={date:ev.date};body.end={date:ymd(new Date(d.getFullYear(),d.getMonth(),d.getDate()+1))};}
   else{var s0=new Date(ev.date+'T'+ev.startTime),e0=ev.endTime?new Date(ev.date+'T'+ev.endTime):new Date(s0.getTime()+3600000);body.start={dateTime:s0.toISOString()};body.end={dateTime:e0.toISOString()};}
@@ -137,7 +142,7 @@ var F={
   {k:'budget',l:'תקציב (₪)',t:'number'}]},
  task:{title:'משימה',col:'tasks',fields:[
   {k:'projectId',l:'פרויקט',t:'project',req:1},{k:'title',l:'מה צריך לעשות',t:'text',req:1},
-  {k:'due',l:'עד תאריך',t:'date'},{k:'status',l:'סטטוס',t:'select',o:['לביצוע','בתהליך','הושלם'],d:'לביצוע'},
+  {k:'due',l:'עד תאריך',t:'date'},{k:'remind',l:'תזכורת בטלפון (דרך יומן גוגל)',t:'select',o:['ללא','בבוקר של היום (8:00)','יום לפני (18:00)'],d:'ללא'},{k:'status',l:'סטטוס',t:'select',o:['לביצוע','בתהליך','הושלם'],d:'לביצוע'},
   {k:'notes',l:'הערות',t:'textarea'}]},
  expense:{title:'הוצאה / קבלה',col:'expenses',fields:[
   {k:'photo',l:'תמונת הקבלה',t:'photo'},{k:'projectId',l:'פרויקט',t:'project',req:1},
@@ -153,7 +158,7 @@ var F={
  event:{title:'אירוע ביומן',col:'events',fields:[
   {k:'title',l:'כותרת',t:'text',req:1},{k:'date',l:'תאריך',t:'date',req:1,d:'today'},
   {k:'startTime',l:'שעת התחלה (אפשר להשאיר ריק ליום שלם)',t:'time'},{k:'endTime',l:'שעת סיום',t:'time'},
-  {k:'projectId',l:'פרויקט (לא חובה)',t:'project'},{k:'location',l:'מקום',t:'text'},{k:'notes',l:'הערות',t:'textarea'}]},
+  {k:'remind',l:'תזכורת בטלפון (דרך יומן גוגל)',t:'select',o:['ללא','בזמן האירוע','10 דקות לפני','30 דקות לפני','שעה לפני','יומיים לפני','יום לפני'],d:'30 דקות לפני'},{k:'projectId',l:'פרויקט (לא חובה)',t:'project'},{k:'location',l:'מקום',t:'text'},{k:'notes',l:'הערות',t:'textarea'}]},
  plan:{title:'תוכנית / קובץ',col:'plans',fields:[
   {k:'file',l:'הקובץ (PDF, תמונה, DWG...)',t:'file'},{k:'projectId',l:'פרויקט',t:'project',req:1},
   {k:'title',l:'שם התוכנית',t:'text'},{k:'notes',l:'הערות',t:'textarea'}]},
@@ -210,6 +215,16 @@ function vHome(){
      '<button class="act a3" data-act="add" data-e="doc">'+ico('image',30)+'תיעוד</button></div>';
   if(toOrder){h+='<div class="card" style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span><b>'+toOrder+'</b> פריטים עדיין לא הוזמנו</span><button class="link" data-act="nav" data-v="projects">לפרויקטים</button></div>';}
   var todayEv=allEvents().filter(function(e){return e.date===todayStr();}).sort(evSort);
+  var tdy=todayStr(),tmr=ymd(new Date(Date.now()+86400000));
+  var late=openT.filter(function(t){return t.due&&t.due<tdy;}),dueT=openT.filter(function(t){return t.due===tdy;}),dueN=openT.filter(function(t){return t.due===tmr;});
+  var delT=S.orders.filter(function(o){return o.status==='הוזמן';}).length;
+  if(late.length||dueT.length||dueN.length){
+    h+='<div class="card" style="margin-top:12px;border-inline-start:5px solid var(--accent,#F7941D)"><b>תזכורות</b><div style="margin-top:6px;line-height:1.7">'+
+      (late.length?'<div>⚠️ '+late.length+' משימות באיחור</div>':'')+
+      (dueT.length?'<div>📌 להיום: '+dueT.map(function(t){return esc(t.title);}).join(', ')+'</div>':'')+
+      (dueN.length?'<div>⏰ מחר: '+dueN.map(function(t){return esc(t.title);}).join(', ')+'</div>':'')+
+      '</div></div>';
+  }
   if(todayEv.length)h+='<div class="sec"><h2>היום ביומן</h2><button class="link" data-act="nav" data-v="calendar">ליומן</button></div><div class="stack">'+todayEv.slice(0,3).map(evRow).join('')+'</div>';
   h+='<div class="sec"><h2>משימות קרובות</h2><button class="link" data-act="nav" data-v="tasks">הכול</button></div>';
   if(up.length){h+='<div class="stack">'+up.map(taskRow.bind(null,true,true)).join('')+'</div>';}
@@ -218,7 +233,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 9</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 10</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -730,7 +745,9 @@ async function submitForm(ev){
     }
     data[f.k]=v;
   }
+  var taskRemind=null;
   if(form.e==='task'){
+    taskRemind=data.remind;delete data.remind;
     var exT=form.id?byId('tasks',form.id):null;
     if(data.status==='הושלם'){if(!(exT&&exT.done_at))data.done_at=new Date().toISOString();}
     else if(exT&&exT.done_at)data.done_at=null;
@@ -774,6 +791,17 @@ async function submitForm(ev){
     }
     var q=form.id?sb.from(cfg.col).update(toRow(data)).eq('id',form.id):sb.from(cfg.col).insert(toRow(data));
     var r=await q;if(r.error)throw r.error;
+    if(form.e==='task'&&taskRemind&&taskRemind!=='ללא'&&data.due&&data.status!=='הושלם'){
+      if(gReady()){
+        try{
+          var morning=taskRemind.indexOf('בבוקר')===0;
+          var dd=pd(data.due);if(!morning)dd=new Date(dd.getFullYear(),dd.getMonth(),dd.getDate()-1);
+          var ds=ymd(dd),tm=morning?'08:00':'18:00';
+          await gApi('POST','',gBody({title:'משימה: '+data.title,notes:data.notes||'',projectId:data.projectId,date:ds,startTime:tm,endTime:morning?'08:30':'18:30',remind:'בזמן האירוע'}));
+          G.range='';gLoad();
+        }catch(e2){}
+      }
+    }
     await loadTable(cfg.col);
     closeSheet();
   }catch(err){
