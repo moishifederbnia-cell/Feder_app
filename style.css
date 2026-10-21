@@ -156,3 +156,26 @@ i.lg{width:10px;height:10px}
 .contact{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
 .contact:last-child{border-bottom:0}
 .call{width:42px;height:42px}
+
+.rep{background:#fff;color:#1F2A38;border-radius:14px;padding:18px;margin-top:12px;box-shadow:var(--shadow)}
+.rep h1{margin:0;font-size:22px;font-weight:800}.rep h2{font-size:17px;margin:18px 0 6px;padding-bottom:4px;border-bottom:2px solid #E4DFD3}
+.rep h2.ok{color:#17613A}.rep h2.warn{color:#8A5200}.rep h2.todo{color:#243A55}
+.rhead{display:flex;align-items:center;gap:12px}.rlogo{width:56px;height:56px;border-radius:12px}
+.rbrand{font-size:13px;color:#566272}.rmeta{margin:10px 0 12px;font-size:14px;line-height:1.5;color:#33404F}
+.rsum{display:flex;gap:8px;flex-wrap:wrap}.rsum>div{flex:1;min-width:84px;background:#F4F1EA;border-radius:10px;padding:8px 10px;text-align:center}
+.rsum b{display:block;font-size:19px}.rsum span{font-size:12px;color:#566272}
+.rbar{height:8px;border-radius:99px;background:#E7E1D5;margin:10px 0;overflow:hidden}.rbar i{display:block;height:100%;background:#F7941D}
+.rt{width:100%;border-collapse:collapse;font-size:14px}.rt td,.rt th{padding:6px 4px;border-bottom:1px solid #E4DFD3;text-align:start;vertical-align:top}
+.rt .rd{text-align:end;white-space:nowrap}.rt .rn{font-size:12px;color:#566272}.rtot td{font-weight:800;border-top:2px solid #1F2A38}
+.rphotos{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.rphotos figure{margin:0;break-inside:avoid}
+.rphotos img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:8px;display:block}.rphotos figcaption{font-size:12px;margin-top:3px;color:#33404F}
+@media print{
+ @page{size:A4;margin:14mm}
+ html,body{background:#fff!important;padding:0!important}
+ body::before,.band,.nav,.noprint,#layer{display:none!important}
+ .wrap{max-width:none;padding:0!important;margin:0!important}
+ main.wrap{margin-top:0!important;padding-top:0!important}
+ .rep{box-shadow:none;border-radius:0;padding:0;margin:0}
+ .rep h2{break-after:avoid}.rt tr{break-inside:avoid}
+ *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
