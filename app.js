@@ -143,8 +143,8 @@ var F={
   {k:'vendor',l:'ספק',t:'text',list:'suppliers',req:1},{k:'amount',l:'סכום (₪)',t:'number',req:1},
   {k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'הערה',t:'text'}]},
  supplier:{title:'ספק',col:'suppliers',fields:[
-  {k:'name',l:'שם הספק',t:'text',req:1},{k:'field',l:'תחום',t:'text',list:'fields'},
-  {k:'phone',l:'טלפון',t:'tel'},{k:'notes',l:'הערות',t:'textarea'}]},
+  {k:'name',l:'שם הספק / החנות',t:'text',req:1},{k:'field',l:'תחום / קטגוריה',t:'text',list:'fields'},
+  {k:'phone',l:'טלפון החנות',t:'tel'},{k:'contacts',l:'אנשי קשר',t:'contacts'},{k:'notes',l:'הערות',t:'textarea'}]},
  order:{title:'הזמנה',col:'orders',fields:[
   {k:'projectId',l:'פרויקט',t:'project',req:1},{k:'item',l:'מה להזמין',t:'text',req:1},
   {k:'supplierId',l:'ספק',t:'supplier'},{k:'status',l:'מצב',t:'select',o:['לא הוזמן','הוזמן','הגיע'],d:'לא הוזמן'},
@@ -214,7 +214,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 5</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 6</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -271,6 +271,13 @@ function vExpenses(){
 }
 
 function supplierFields(){var o={};S.suppliers.forEach(function(s){if(s.field)o[s.field]=1;});return Object.keys(o).sort();}
+function waNum(p){var d=String(p||'').replace(/\D/g,'');if(d.indexOf('00')===0)d=d.slice(2);else if(d.charAt(0)==='0')d='972'+d.slice(1);return d;}
+function callBtns(phone,label){
+  if(!phone)return '';
+  return '<span class="callrow"><a class="call" href="tel:'+esc(String(phone).replace(/[^0-9+]/g,''))+'" aria-label="התקשר ל'+esc(label)+'">'+ico('phone',20)+'</a>'+
+   '<a class="call wa" href="https://wa.me/'+esc(waNum(phone))+'" target="_blank" rel="noopener" aria-label="וואטסאפ ל'+esc(label)+'">'+WAI+'</a></span>';
+}
+var WAI='<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2a10 10 0 00-8.6 15.1L2 22l5-1.3A10 10 0 1012 2zm5.2 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .2-3.3-.7-2.8-1.2-4.6-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.8s.7-2 1-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.4.6c-.1.2-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.2 1 2.1 1.4 2.4 1.5.3.1.5.1.6-.1l.9-1.1c.2-.3.4-.2.6-.1l1.9.9c.3.1.5.2.5.3.1.2.1.8-.1 1.4z"/></svg>';
 function supplierList(){
   var q=UI.supQuery.trim().toLowerCase(),mk=todayStr().slice(0,7);
   var list=S.suppliers.filter(function(s){
@@ -279,21 +286,26 @@ function supplierList(){
       var inP=S.orders.some(function(o){return o.projectId===UI.supProject&&o.supplierId===s.id;})||S.expenses.some(function(x){return x.projectId===UI.supProject&&x.vendor===s.name;});
       if(!inP)return false;
     }
-    return !q||((s.name||'')+' '+(s.field||'')).toLowerCase().indexOf(q)>-1;
+    var hay=((s.name||'')+' '+(s.field||'')+' '+(s.phone||'')+' '+(s.contacts||[]).map(function(c){return (c.name||'')+' '+(c.phone||'')+' '+(c.role||'');}).join(' ')).toLowerCase();
+    return !q||hay.indexOf(q)>-1;
   }).sort(function(a,b){return String(a.name).localeCompare(String(b.name),'he');});
-  if(!list.length)return emptyBox(S.suppliers.length?'לא נמצא ספק מתאים.':'עוד אין ספקים. מוסיפים את הראשון.',S.suppliers.length?'':addBtn('supplier','ספק חדש'));
+  if(!list.length)return emptyBox(S.suppliers.length?'לא נמצא ספק מתאים.':'עוד אין ספקים. מוסיפים את הראשון, או מייבאים מאנשי הקשר.',S.suppliers.length?'':addBtn('supplier','ספק חדש'));
   return '<div class="stack">'+list.map(function(s){
     var open=S.orders.filter(function(o){return o.supplierId===s.id&&o.status!=='הגיע';}).length;
     var spent=sum(S.expenses.filter(function(x){return x.vendor===s.name&&String(x.date||'').slice(0,7)===mk;}));
+    var cts=(s.contacts||[]).map(function(c){
+      return '<div class="contact"><div style="min-width:0"><div style="font-weight:700">'+esc(c.name||'')+'</div><div class="muted">'+(c.role?esc(c.role)+' · ':'')+'<span class="ltr">'+esc(c.phone||'')+'</span></div></div>'+callBtns(c.phone,c.name||s.name)+'</div>';
+    }).join('');
     return '<div class="card"><div class="row1"><button class="main" style="flex:1;min-width:0;background:none;border:0;text-align:start;padding:0;color:inherit" data-act="edit" data-e="supplier" data-id="'+esc(s.id)+'">'+
-      '<div class="name">'+esc(s.name)+'</div><div class="muted">'+esc(s.field||'')+(s.phone?' · <span class="ltr">'+esc(s.phone)+'</span>':'')+'</div></button>'+
-      (s.phone?'<a class="call" href="tel:'+esc(String(s.phone).replace(/[^0-9+]/g,''))+'" aria-label="התקשר ל'+esc(s.name)+'">'+ico('phone',22)+'</a>':'')+'</div>'+
+      '<div class="name">'+esc(s.name)+'</div><div class="muted">'+esc(s.field||'')+(s.phone?' · <span class="ltr">'+esc(s.phone)+'</span>':'')+'</div></button>'+callBtns(s.phone,s.name)+'</div>'+
+      (cts?'<div class="contacts">'+cts+'</div>':'')+
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'+chip(open?'warn':'ok',open?open+' הזמנות פתוחות':'אין הזמנות פתוחות')+chip('neutral',money(spent)+' החודש')+'</div></div>';
   }).join('')+'</div>';
 }
 function vSuppliers(){
   var h=bandHtml('ספקים',null,{right:'<button class="btn btn-accent" data-act="add" data-e="supplier">'+ico('plus',20)+'ספק חדש</button>'});
   h+='<main class="wrap" style="'+PULL+'">';
+  h+='<button class="btn btn-line" style="width:100%;margin-bottom:10px" data-act="import">'+ico('people',22)+'ייבוא מאנשי הקשר בטלפון</button>';
   h+='<label for="sq" class="sr">חיפוש ספק</label><input id="sq" class="search" type="search" placeholder="חפש ספק או תחום" value="'+esc(UI.supQuery)+'" autocomplete="off">';
   var fs=supplierFields();
   if(fs.length){h+='<div class="filters" style="margin-top:8px"><button class="fchip" data-act="sfield" data-v="" aria-pressed="'+(!UI.supField)+'">הכול</button>'+fs.map(function(f){return '<button class="fchip" data-act="sfield" data-v="'+esc(f)+'" aria-pressed="'+(UI.supField===f)+'">'+esc(f)+'</button>';}).join('')+'</div>';}
@@ -501,19 +513,27 @@ function projOptions(sel){
 function supOptions(sel){
   return '<option value="">ללא</option>'+S.suppliers.slice().sort(function(a,b){return String(a.name).localeCompare(String(b.name),'he');}).map(function(p){return '<option value="'+esc(p.id)+'"'+(sel===p.id?' selected':'')+'>'+esc(p.name)+(p.field?' · '+esc(p.field):'')+'</option>';}).join('');
 }
+function crowHtml(c){
+  c=c||{};
+  return '<div class="crow"><input class="c_n" placeholder="שם איש קשר" value="'+esc(c.name)+'" aria-label="שם איש קשר"><input class="c_p ltr" type="tel" inputmode="tel" placeholder="טלפון" value="'+esc(c.phone)+'" aria-label="טלפון איש קשר"><input class="c_r" placeholder="תפקיד (לא חובה)" value="'+esc(c.role)+'" aria-label="תפקיד"><button type="button" class="link" data-act="rmcontact">הסר</button></div>';
+}
 function fieldHtml(f,val){
   var id='f_'+f.k,inp='';
   if(f.t==='textarea')inp='<textarea id="'+id+'">'+esc(val)+'</textarea>';
   else if(f.t==='project')inp='<select id="'+id+'">'+projOptions(val)+'</select>';
   else if(f.t==='supplier')inp='<select id="'+id+'">'+supOptions(val)+'</select>';
   else if(f.t==='select')inp='<select id="'+id+'">'+f.o.map(function(o){return '<option'+(val===o?' selected':'')+'>'+esc(o)+'</option>';}).join('')+'</select>';
+  else if(f.t==='contacts'){
+    var arr=Array.isArray(val)?val:[];
+    inp='<div id="contacts">'+arr.map(crowHtml).join('')+'</div><button type="button" class="btn btn-line" data-act="addcontact">'+ico('plus',20)+'הוסף איש קשר</button>';
+  }
   else if(f.t==='photo'){
     inp='<div class="ph"><div class="phprev" id="phprev">'+(val?'<img src="'+purl(val)+'" alt="">':ico('camera',40))+'</div>'+
       '<div class="grid2"><span class="btn btn-navy filebtn">'+ico('camera',22)+'צלם עכשיו<input type="file" accept="image/*" capture="environment" class="photoin" aria-label="צלם במצלמה"></span>'+
       '<span class="btn btn-line filebtn">'+ico('image',22)+'מהגלריה<input type="file" accept="image/*" class="photoin" aria-label="בחר תמונה מהגלריה"></span></div>'+(val?'<button type="button" class="btn btn-line" data-act="rmphoto">הסר תמונה</button>':'')+'</div>';
   }
   else inp='<input id="'+id+'" type="'+(f.t==='number'?'text':f.t)+'"'+(f.t==='number'?' inputmode="decimal"':'')+(f.list?' list="dl_'+f.list+'"':'')+' value="'+esc(val)+'" autocomplete="off">';
-  var lab=f.t==='photo'?'<span style="font-size:15px;font-weight:700">'+esc(f.l)+'</span>':'<label for="'+id+'">'+esc(f.l)+(f.req?' *':'')+'</label>';
+  var lab=(f.t==='photo'||f.t==='contacts')?'<span style="font-size:15px;font-weight:700">'+esc(f.l)+'</span>':'<label for="'+id+'">'+esc(f.l)+(f.req?' *':'')+'</label>';
   return '<div class="fld">'+lab+inp+'</div>';
 }
 function openForm(e,id,defs){
@@ -562,6 +582,12 @@ async function submitForm(ev){
   var cfg=F[form.e],data={};
   for(var i=0;i<cfg.fields.length;i++){
     var f=cfg.fields[i];if(f.t==='photo')continue;
+    if(f.t==='contacts'){
+      var arr=[].slice.call(document.querySelectorAll('#contacts .crow')).map(function(row){return {name:row.querySelector('.c_n').value.trim(),phone:row.querySelector('.c_p').value.trim(),role:row.querySelector('.c_r').value.trim()};}).filter(function(c){return c.name||c.phone;});
+      var ex=form.id?byId(cfg.col,form.id):null;
+      if(arr.length||(ex&&ex.contacts&&ex.contacts.length))data.contacts=arr;
+      continue;
+    }
     var el=$('#f_'+f.k);var v=el?el.value.trim():'';
     if(f.req&&!v){ferr('חסר: '+f.l);if(el)el.focus();return;}
     if(f.t==='number'){
@@ -616,6 +642,33 @@ async function doDelete(){
   }catch(err){btn.disabled=false;ferr('המחיקה לא הצליחה. נסה שוב.');}
 }
 
+/* ---------- contacts import ---------- */
+var IMP=[];
+async function startImport(){
+  if(!('contacts' in navigator&&'ContactsManager' in window)){alert('הדפדפן הזה לא תומך בבחירת אנשי קשר. פתח את האפליקציה ב-Chrome באנדרואיד.');return;}
+  var picked;
+  try{picked=await navigator.contacts.select(['name','tel'],{multiple:true});}catch(e){return;}
+  if(!picked||!picked.length)return;
+  var have={};S.suppliers.forEach(function(x){[x.phone].concat((x.contacts||[]).map(function(c){return c.phone;})).forEach(function(p){if(p)have[String(p).replace(/\D/g,'').slice(-9)]=1;});});
+  IMP=picked.map(function(c){var ph=(c.tel&&c.tel[0]||'').replace(/[\s-]/g,'');return {name:(c.name&&c.name[0]||'').trim()||ph,phone:ph,dup:!!(ph&&have[ph.replace(/\D/g,'').slice(-9)])};});
+  var cats=supplierFields();
+  var html='<div class="scrim" data-act="closeSheet"></div><form class="sheet" id="impf" role="dialog" aria-modal="true"><h2>ייבוא אנשי קשר ('+IMP.length+')</h2>'+
+   '<div class="fld"><label for="imp_cat">קטגוריה לכל הנבחרים</label><input id="imp_cat" list="dl_imp" placeholder="למשל: חשמל, אינסטלציה, ריצוף" autocomplete="off"><datalist id="dl_imp">'+cats.map(function(c){return '<option value="'+esc(c)+'">';}).join('')+'</datalist></div>'+
+   '<div class="muted" style="margin-bottom:6px">בטל סימון למי שלא לצרף. מי שכבר קיים אצלך מסומן "כבר קיים" ולא יסומן.</div>'+
+   '<div class="stack" style="margin-bottom:12px">'+IMP.map(function(c,i){return '<label class="chk item" style="padding:8px 12px"><input type="checkbox" data-imp="'+i+'"'+(c.dup?'':' checked')+'><span style="min-width:0"><b>'+esc(c.name)+'</b>'+(c.dup?' '+chip('neutral','כבר קיים'):'')+'<br><span class="muted ltr">'+esc(c.phone)+'</span></span></label>';}).join('')+'</div>'+
+   '<p class="ferr" id="ferr" role="alert"></p><div class="fbtns"><button class="btn btn-accent" type="submit" id="impsave">ייבא</button><button class="btn btn-line" type="button" data-act="closeSheet">ביטול</button></div></form>';
+  $('#layer').innerHTML=html;
+}
+async function doImport(){
+  var cat=($('#imp_cat').value||'').trim();
+  var rows=[].slice.call(document.querySelectorAll('[data-imp]')).filter(function(c){return c.checked;}).map(function(c){var x=IMP[+c.getAttribute('data-imp')];return {name:x.name,phone:x.phone||null,field:cat||null};});
+  if(!rows.length){ferr('לא נבחר אף איש קשר.');return;}
+  var b=$('#impsave');b.disabled=true;b.textContent='מייבא…';
+  var r=await sb.from('suppliers').insert(rows);
+  if(r.error){b.disabled=false;b.textContent='ייבא';ferr('הייבוא לא הצליח. נסה שוב.');return;}
+  await loadTable('suppliers');closeSheet();
+}
+
 /* ---------- events ---------- */
 document.addEventListener('click',function(ev){
   var el=ev.target.closest('[data-act]');if(!el)return;
@@ -643,6 +696,9 @@ document.addEventListener('click',function(ev){
   else if(a==='toggle'){var t=byId('tasks',id);if(t)sb.from('tasks').update({status:t.status==='הושלם'?'לביצוע':'הושלם'}).eq('id',id).then(function(){loadTable('tasks');});}
   else if(a==='cycle'){var o=byId('orders',id);if(o)sb.from('orders').update({status:ORD_NEXT[o.status]||'הוזמן'}).eq('id',id).then(function(){loadTable('orders');});}
   else if(a==='photo'){var lb=document.createElement('button');lb.className='lightbox';lb.setAttribute('aria-label','סגור תמונה');lb.innerHTML='<img src="'+purl(id)+'" alt="תמונה">';lb.onclick=function(){lb.remove();};document.body.appendChild(lb);}
+  else if(a==='import'){startImport();}
+  else if(a==='addcontact'){var cc=$('#contacts');if(cc){cc.insertAdjacentHTML('beforeend',crowHtml());var ins=cc.querySelectorAll('.c_n');ins[ins.length-1].focus();}}
+  else if(a==='rmcontact'){var rw=el.closest('.crow');if(rw)rw.remove();}
   else if(a==='gconnect'){gConnect();}
   else if(a==='gdisc'){gDisconnect();}
   else if(a==='logout'){sb.auth.signOut();}
@@ -668,6 +724,7 @@ document.addEventListener('submit',function(ev){
   var id=ev.target.id;
   if(id==='frm')submitForm(ev);
   else if(id==='lf'){ev.preventDefault();doLogin();}
+  else if(id==='impf'){ev.preventDefault();doImport();}
   else if(id==='msgf'){ev.preventDefault();sendMsg(ev.target);}
 });
 document.addEventListener('keydown',function(ev){if(ev.key==='Escape'&&form)closeSheet();});
