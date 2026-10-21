@@ -214,7 +214,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 4</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 5</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -677,15 +677,17 @@ async function doLogin(){
   var m=$('#l_mail').value.trim(),p=$('#l_pass').value;
   AUTH.msg='';AUTH.ok='';
   if(!m||!p){AUTH.msg='נא למלא אימייל וסיסמה.';render();return;}
+  AUTH.ok='נכנס…';render();
   var r=await sb.auth.signInWithPassword({email:m,password:p});
-  if(r.error){AUTH.msg=/confirm/i.test(r.error.message)?'צריך לאשר את האימייל (נשלח אליך מייל).':'אימייל או סיסמה לא נכונים.';render();}
+  if(r.error){AUTH.ok='';AUTH.msg=/confirm/i.test(r.error.message)?'צריך לאשר את האימייל (נשלח אליך מייל).':'אימייל או סיסמה לא נכונים.';render();}
 }
 async function doSignup(){
   var n=$('#l_name').value.trim(),m=$('#l_mail').value.trim(),p=$('#l_pass').value;
   AUTH.msg='';AUTH.ok='';
   if(!m||p.length<6){AUTH.msg='נא למלא אימייל וסיסמה (לפחות 6 תווים).';render();return;}
+  AUTH.ok='פותח משתמש…';render();
   var r=await sb.auth.signUp({email:m,password:p,options:{data:{name:n}}});
-  if(r.error){AUTH.msg='לא הצלחנו לפתוח משתמש: '+r.error.message;render();return;}
+  if(r.error){AUTH.ok='';AUTH.msg='לא הצלחנו לפתוח משתמש: '+r.error.message;render();return;}
   if(!r.data.session){AUTH.ok='נשלח אליך מייל לאישור. אשר אותו, חזור לכאן והתחבר.';render();}
 }
 async function loadTable(t){
