@@ -186,5 +186,6 @@ i.lg{width:10px;height:10px}
 
 .rt td.st{white-space:normal;min-width:84px;font-size:13px}
 
-.bellbtn{position:relative;background:transparent;border:2px solid var(--navy-sub);color:#fff;width:48px;height:48px;border-radius:14px;display:grid;place-items:center;cursor:pointer;flex:none}
-.bellbtn .bdg{position:absolute;top:-7px;inset-inline-start:-7px;background:#F7941D;color:#fff;border-radius:999px;min-width:22px;height:22px;font:700 13px/22px Heebo,sans-serif;text-align:center;padding:0 5px}
+.bellbtn{position:relative;background:transparent;border:0;color:#F7941D;width:44px;height:44px;display:grid;place-items:center;cursor:pointer;flex:none;padding:0}
+.bellbtn svg{width:30px;height:30px}
+.bellbtn .bdg{position:absolute;top:0;inset-inline-start:0;background:#E53935;color:#fff;border-radius:999px;min-width:20px;height:20px;font:700 12px/20px Heebo,sans-serif;text-align:center;padding:0 5px}
