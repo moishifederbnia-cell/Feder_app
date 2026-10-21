@@ -18,20 +18,33 @@ function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
 function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
 function gReady(){return !!G.token&&Date.now()<G.exp;}
 function gWasConnected(){return lsGet('feder_gcal')==='1';}
-function gConnect(){
-  if(!(window.google&&google.accounts&&google.accounts.oauth2)){G.err='שירות הכניסה של גוגל עדיין לא נטען. נסה שוב בעוד רגע.';render();return;}
+function gSave(){try{localStorage.setItem('feder_gtok',JSON.stringify({t:G.token,e:G.exp}));}catch(e){}}
+function gRestore(){try{var o=JSON.parse(localStorage.getItem('feder_gtok')||'null');if(o&&o.t&&o.e>Date.now()+60000){G.token=o.t;G.exp=o.e;}}catch(e){}}
+function gRequest(silent){
+  if(!(window.google&&google.accounts&&google.accounts.oauth2)){if(!silent){G.err='שירות הכניסה של גוגל עדיין לא נטען. נסה שוב בעוד רגע.';render();}return;}
   var tc=google.accounts.oauth2.initTokenClient({client_id:GCLIENT,scope:'https://www.googleapis.com/auth/calendar.events',
     callback:function(r){
-      if(r&&r.access_token){G.token=r.access_token;G.exp=Date.now()+((r.expires_in||3600)-60)*1000;G.err='';lsSet('feder_gcal','1');G.range='';render();}
-      else{G.err='החיבור ליומן גוגל לא הושלם.';render();}
+      if(r&&r.access_token){G.token=r.access_token;G.exp=Date.now()+((r.expires_in||3600)-60)*1000;G.err='';lsSet('feder_gcal','1');gSave();G.range='';render();}
+      else if(!silent){G.err='החיבור ליומן גוגל לא הושלם.';render();}
     },
-    error_callback:function(){G.err='החיבור ליומן גוגל בוטל או נחסם.';render();}});
-  tc.requestAccessToken({prompt:gWasConnected()?'':'consent'});
+    error_callback:function(){if(!silent){G.err='החיבור ליומן גוגל בוטל או נחסם.';render();}}});
+  tc.requestAccessToken({prompt:silent?'none':(gWasConnected()?'':'consent')});
 }
-function gDisconnect(){G.token=null;G.exp=0;G.events=[];G.range='';lsSet('feder_gcal','0');render();}
+function gConnect(){gRequest(false);}
+var gSilentAt=0;
+function gSilent(){
+  if(!gWasConnected()||gReady()||Date.now()-gSilentAt<60000)return;
+  gSilentAt=Date.now();
+  var tries=0,t=setInterval(function(){
+    tries++;
+    if(window.google&&google.accounts&&google.accounts.oauth2){clearInterval(t);gRequest(true);}
+    else if(tries>20)clearInterval(t);
+  },300);
+}
+function gDisconnect(){try{localStorage.removeItem('feder_gtok');}catch(e){}G.token=null;G.exp=0;G.events=[];G.range='';lsSet('feder_gcal','0');render();}
 function gApi(method,path,body){
   return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events'+path,{method:method,headers:{'Authorization':'Bearer '+G.token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined}).then(function(res){
-    if(res.status===401){G.token=null;G.exp=0;throw {code:'auth'};}
+    if(res.status===401){G.token=null;G.exp=0;try{localStorage.removeItem('feder_gtok');}catch(e){}throw {code:'auth'};}
     if(!res.ok)throw {code:'http'+res.status};
     return res.status===204?null:res.json();
   });
@@ -713,13 +726,14 @@ async function boot(session){
   AUTH.name=pr.name||'';AUTH.role=pr.role||'pending';
   if(AUTH.role==='pending'){AUTH.state='pending';render();return;}
   AUTH.state='app';render();
+  gRestore();if(!gReady())gSilent();
   await loadAll();subscribe();
 }
 sb.auth.onAuthStateChange(function(ev,session){
   if(ev==='INITIAL_SESSION'||ev==='SIGNED_IN'||ev==='SIGNED_OUT')setTimeout(function(){boot(session);},0);
 });
 setInterval(function(){if(AUTH.state==='app'&&!form&&!document.hidden)loadAll();},45000);
-document.addEventListener('visibilitychange',function(){if(!document.hidden&&AUTH.state==='app'&&!form)loadAll();});
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&AUTH.state==='app'&&!form){loadAll();if(!gReady())gSilent();}});
 render();
 if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}
 })();
