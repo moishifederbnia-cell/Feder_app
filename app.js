@@ -281,7 +281,7 @@ function vProject(){
 function evSort(a,b){return String(a.startTime||'').localeCompare(String(b.startTime||''));}
 function evRow(e){
   var t=e.startTime?e.startTime+(e.endTime?'–'+e.endTime:''):'כל היום';
-  return '<div class="item"><div class="evtime">'+esc(t)+'</div><button class="main" data-act="edit" data-e="event" data-id="'+esc(e.id)+'"><div class="t">'+esc(e.title)+'</div><div class="muted">'+(e.projectId?esc(pname(e.projectId))+(e.location?' · ':''):'')+esc(e.location||'')+(e.google_id?' · יומן גוגל':'')+'</div></button></div>';
+  return '<div class="item"><div class="evtime ltr">'+esc(t)+'</div><button class="main" data-act="edit" data-e="event" data-id="'+esc(e.id)+'"><div class="t">'+esc(e.title)+'</div><div class="muted">'+(e.projectId?esc(pname(e.projectId))+(e.location?' · ':''):'')+esc(e.location||'')+(e.google_id?' · יומן גוגל':'')+'</div></button></div>';
 }
 function vCalendar(){
   var now=new Date();
@@ -294,7 +294,7 @@ function vCalendar(){
   S.tasks.forEach(function(t){if(t.due&&t.status!=='הושלם')(tkBy[t.due]=tkBy[t.due]||[]).push(t);});
   var h=bandHtml('יומן',null,{right:'<button class="btn btn-accent" data-act="add" data-e="event">'+ico('plus',20)+'אירוע</button>'});
   h+='<main class="wrap" style="'+PULL+'"><div class="card">';
-  h+='<div class="calhead"><button class="calnav" data-act="cmonth" data-v="1" aria-label="חודש הבא">'+ico('back',22)+'</button><div class="caltitle">'+esc(title)+'</div><button class="calnav" data-act="cmonth" data-v="-1" aria-label="חודש קודם" style="transform:scaleX(-1)">'+ico('back',22)+'</button></div>';
+  h+='<div class="calhead"><button class="calnav" data-act="cmonth" data-v="-1" aria-label="חודש קודם">'+ico('back',22)+'</button><div class="caltitle">'+esc(title)+'</div><button class="calnav" data-act="cmonth" data-v="1" aria-label="חודש הבא" style="transform:scaleX(-1)">'+ico('back',22)+'</button></div>';
   h+='<div class="cal">'+['א','ב','ג','ד','ה','ו','ש'].map(function(d){return '<div class="cdn">'+d+'</div>';}).join('');
   for(var i=0;i<lead;i++)h+='<div></div>';
   for(var d=1;d<=days;d++){
@@ -314,7 +314,7 @@ function vCalendar(){
 var ROLES=[['pending','ממתין לאישור'],['admin','מנהל'],['team','צוות'],['accountant','רואה חשבון'],['client','לקוח']];
 function vUsers(){
   var h=bandHtml('משתמשים והרשאות',null,{back:'חזרה'});
-  h+='<main class="wrap" style="'+PULL+'"><div class="muted" style="margin-bottom:10px">מי שנרשם ממתין עד שתבחר לו תפקיד. צוות רואה ועורך הכול. רואה חשבון רואה הוצאות בלבד. לקוח רואה רק את הפרויקטים ששייכת לו.</div><div class="stack">';
+  h+='<main class="wrap" style="'+PULL+'"><div class="card muted" style="margin-bottom:12px">מי שנרשם ממתין עד שתבחר לו תפקיד. צוות רואה ועורך הכול. רואה חשבון רואה הוצאות בלבד. לקוח רואה רק את הפרויקטים ששייכת לו.</div><div class="stack">';
   S.profiles.slice().sort(function(a,b){return (a.role==='pending'?0:1)-(b.role==='pending'?0:1);}).forEach(function(u){
     var me=u.id===AUTH.uid;
     h+='<div class="card"><div class="name">'+esc(u.name||u.email||'')+(me?' (אני)':'')+'</div><div class="muted ltr">'+esc(u.email||'')+'</div>'+
