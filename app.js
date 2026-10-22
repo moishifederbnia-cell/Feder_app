@@ -74,8 +74,31 @@ function gLoad(){
         }
       }
     });
-    G.events=out;G.range=key;G.loading=false;G.err='';render();
+    G.events=out;G.range=key;G.loading=false;G.err='';render();gSyncBot();
   }).catch(function(e){G.loading=false;G.range=key;G.err=(e&&e.code==='auth')?'החיבור ליומן גוגל פג. לחץ לחיבור מחדש.':'לא הצלחנו לטעון את יומן גוגל.';render();});
+}
+var gSyncing=false,gTried={};
+function gSyncBot(){
+  if(gSyncing||!gReady()||!isStaff())return;
+  var from=Date.now()-86400000;
+  var todo=S.events.filter(function(e){return !e.google_id&&!gTried[e.id]&&e.start_at&&Date.parse(e.start_at)>=from;}).slice(0,15);todo.forEach(function(e){gTried[e.id]=1;});
+  if(!todo.length)return;
+  gSyncing=true;
+  var chain=Promise.resolve();
+  todo.forEach(function(e){
+    chain=chain.then(function(){
+      var gid='feder'+String(e.id).replace(/-/g,'');
+      var s0=new Date(e.start_at),e0=e.end_at?new Date(e.end_at):new Date(s0.getTime()+3600000);
+      var body={id:gid,summary:e.title,description:e.notes||'',location:e.location||''};
+      if(e.project_id)body.extendedProperties={private:{feder_project:e.project_id}};
+      if(e.all_day){var d=ymd(s0);body.start={date:d};body.end={date:ymd(new Date(s0.getFullYear(),s0.getMonth(),s0.getDate()+1))};}
+      else{body.start={dateTime:s0.toISOString()};body.end={dateTime:e0.toISOString()};}
+      return gApi('POST','',body).catch(function(er){if(er&&er.code==='http409')return null;throw er;}).then(function(){
+        return sb.from('events').update({google_id:gid}).eq('id',e.id);
+      });
+    });
+  });
+  chain.catch(function(){}).then(function(){gSyncing=false;G.range='';return loadTable('events').then(function(){return gLoad();});});
 }
 function gBody(ev){
   var body={summary:ev.title,description:ev.notes||'',location:ev.location||''};
@@ -154,7 +177,7 @@ function openBell(){
 function teamName(id){var m=byId('team_members',id);return m?m.name:'';}
 function myMember(){return S.team_members.filter(function(m){return m.user_id&&m.user_id===AUTH.uid;})[0]||null;}
 function assigneeOptions(sel){return '<option value="">ללא</option>'+S.team_members.map(function(m){return '<option value="'+esc(m.id)+'"'+(sel===m.id?' selected':'')+'>'+esc(m.name)+(m.title?' · '+esc(m.title):'')+'</option>';}).join('');}
-function allEvents(){return S.events.concat(G.events);}
+function allEvents(){return S.events.filter(function(e){return !(e.google_id&&gReady());}).concat(G.events);}
 var BLANK='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 var MAP={projectId:'project_id',clientName:'client_name',clientPhone:'client_phone',supplierId:'supplier_id',assigneeId:'assignee_id'};
@@ -310,7 +333,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 20</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 21</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -644,7 +667,7 @@ function vUsers(){
   if(isAdmin()&&S.team_members.length){
     var staffU=S.profiles.filter(function(u){return u.role==='admin'||u.role==='team'||u.role==='worker';});
     h+='<div class="card" style="margin-bottom:12px"><b>צוות העבודה</b><div class="muted" style="margin:4px 0 8px">חבר כל אחד מהצוות למשתמש שלו כדי שיקבל התראות על משימות שמשויכות אליו.</div>'+
-      S.team_members.map(function(m){return '<div class="fld" style="margin:8px 0 0"><label for="tm_'+esc(m.id)+'">'+esc(m.name)+(m.title?' · '+esc(m.title):'')+'</label><select id="tm_'+esc(m.id)+'" data-tm="'+esc(m.id)+'"><option value="">לא מחובר</option>'+staffU.map(function(u){return '<option value="'+esc(u.id)+'"'+(m.user_id===u.id?' selected':'')+'>'+esc(u.name||u.email||'')+'</option>';}).join('')+'</select></div>';}).join('')+'</div>';
+      S.team_members.map(function(m){return '<div class="fld" style="margin:8px 0 0"><label for="tm_'+esc(m.id)+'">'+esc(m.name)+(m.title?' · '+esc(m.title):'')+'</label><select id="tm_'+esc(m.id)+'" data-tm="'+esc(m.id)+'"><option value="">לא מחובר</option>'+staffU.map(function(u){return '<option value="'+esc(u.id)+'"'+(m.user_id===u.id?' selected':'')+'>'+esc(u.name||u.email||'')+'</option>';}).join('')+'</select><input class="ltr" type="tel" inputmode="tel" data-tmph="'+esc(m.id)+'" value="'+esc(m.phone||'')+'" placeholder="טלפון לבוט וואטסאפ (05...)" aria-label="טלפון של '+esc(m.name)+'" style="margin-top:6px"></div>';}).join('')+'</div>';
   }
   h+='<div class="card muted" style="margin-bottom:12px">מי שנרשם ממתין עד שתבחר לו תפקיד. צוות רואה ועורך הכול. רואה חשבון רואה הוצאות בלבד. לקוח רואה רק את הפרויקטים ששייכת לו.</div><div class="stack">';
   S.profiles.slice().sort(function(a,b){return (a.role==='pending'?0:1)-(b.role==='pending'?0:1);}).forEach(function(u){
@@ -779,7 +802,7 @@ function draw(){
     else if(v==='suppliers')h=vSuppliers();else if(v==='expenses')h=vExpenses();else if(v==='calendar')h=vCalendar();else if(v==='report')h=vReport();else if(v==='users')h=vUsers();else h=vHome();
     app.innerHTML=h+navHtml();
   }
-  if(isStaff())gEnsure();
+  if(isStaff()){gEnsure();gSyncBot();}
   navSync();
   var at=$('.tabs .tab[aria-pressed="true"]');if(at&&at.scrollIntoView){try{at.scrollIntoView({block:'nearest',inline:'center'});}catch(e){}}
   if(typed&&$('#msgin'))$('#msgin').value=typed;
@@ -1121,6 +1144,8 @@ document.addEventListener('change',function(ev){
     ferr('');form.file=f;form.removed=false;
     var p=$('#phprev');if(p){var isv=/^video\//.test(f.type),im=document.createElement(isv?'video':'img');if(isv){im.controls=true;im.muted=true;im.setAttribute('playsinline','');}else im.alt='';im.src=URL.createObjectURL(f);p.innerHTML='';p.appendChild(im);}
   }else if(t.getAttribute&&t.getAttribute('data-rp')){UI.repPhotos=t.checked;render();
+  }else if(t.getAttribute&&t.getAttribute('data-tmph')){
+    sb.from('team_members').update({phone:t.value.trim()||null}).eq('id',t.getAttribute('data-tmph')).then(function(r){if(r.error)toast('לא נשמר הטלפון.');else toast('הטלפון נשמר ✓');loadTable('team_members');});
   }else if(t.getAttribute&&t.getAttribute('data-tm')){
     sb.from('team_members').update({user_id:t.value||null}).eq('id',t.getAttribute('data-tm')).then(function(r){if(r.error)toast('לא ניתן לחבר: אותו משתמש כבר מחובר לאדם אחר?');loadTable('team_members');});
   }else if(t.getAttribute&&t.getAttribute('data-role')){
