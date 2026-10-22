@@ -178,10 +178,12 @@ function pname(id){var p=byId('projects',id);return p?p.name:'פרויקט שנ�
 function sum(a){return a.reduce(function(t,x){return t+(Number(x.amount)||0);},0);}
 function chip(cls,t){return '<span class="chip c-'+cls+'">'+esc(t)+'</span>';}
 function purl(path){return PHOTO[path]||BLANK;}
+function isVid(p){return /\.(mp4|mov|webm|3gp|m4v)$/i.test(p||'');}
+function mediaTag(p,full){return isVid(p)?'<video src="'+purl(p)+'#t=0.1" preload="metadata" muted playsinline'+(full?' controls':'')+'></video>'+(full?'':'<span class="vplay">'+ico('play',26)+'</span>'):'<img src="'+purl(p)+'" alt="">';}
 function isStaff(){return AUTH.role==='admin'||AUTH.role==='team';}
 function isAdmin(){return AUTH.role==='admin';}
 
-var I={
+var I={play:'<polygon points="6 4 20 12 6 20 6 4" fill="currentColor"/>',
  home:'<path d="M4 11l8-7 8 7v9H4z"/>',
  folder:'<path d="M3 7h7l2 2h9v10H3z"/>',
  check:'<path d="M5 12l4 4 10-10"/>',
@@ -229,11 +231,11 @@ var F={
   {k:'file',l:'הקובץ (PDF, תמונה, DWG...)',t:'file'},{k:'projectId',l:'פרויקט',t:'project',req:1},
   {k:'title',l:'שם התוכנית',t:'text'},{k:'notes',l:'הערות',t:'textarea'}]},
  supdoc:{title:'תעודה / תיעוד של ספק',col:'supplier_docs',fields:[
-  {k:'photo',l:'תמונה',t:'photo'},{k:'projectId',l:'פרויקט',t:'project',req:1},{k:'supplierId',l:'ספק',t:'supplier',req:1},
+  {k:'photo',l:'תמונה או וידאו',t:'photo',vid:1},{k:'projectId',l:'פרויקט',t:'project',req:1},{k:'supplierId',l:'ספק',t:'supplier',req:1},
   {k:'kind',l:'סוג',t:'select',o:['תעודת משלוח','תיעוד'],d:'תעודת משלוח'},
   {k:'title',l:'כותרת (לא חובה)',t:'text'},{k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'הערה',t:'textarea'}]},
  doc:{title:'תיעוד',col:'docs',fields:[
-  {k:'photo',l:'תמונה',t:'photo'},{k:'projectId',l:'פרויקט',t:'project',req:1},
+  {k:'photo',l:'תמונה או וידאו',t:'photo',vid:1},{k:'projectId',l:'פרויקט',t:'project',req:1},
   {k:'title',l:'כותרת',t:'text',req:1},{k:'stage',l:'שלב / תחום',t:'text',list:'stages'},
   {k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'הערה',t:'textarea'}]}
 };
@@ -308,7 +310,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 19</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 20</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -444,7 +446,7 @@ function projSuppliersHtml(p){
     (s.contacts&&s.contacts.length?s.contacts.map(function(c){return '<div style="display:flex;align-items:center;gap:10px;margin-top:8px"><span>'+esc(c.name||'')+(c.role?' · '+esc(c.role):'')+'</span>'+(c.phone?'<span class="ltr muted">'+esc(c.phone)+'</span>'+callBtns(c.phone,c.name||s.name):'')+'</div>';}).join(''):'')+'</div>';
   h+='<div class="sec"><h2>תעודות משלוח ותיעוד</h2><button class="btn btn-accent" data-act="add" data-e="supdoc" data-project="'+esc(p.id)+'" data-supplier="'+esc(s.id)+'">'+ico('camera',20)+'הוסף</button></div>';
   h+=docs.length?'<div class="docs">'+docs.map(function(d){
-    return '<button class="doc" data-act="edit" data-e="supdoc" data-id="'+esc(d.id)+'"><div class="im">'+(d.photo?'<img src="'+purl(d.photo)+'" alt="">':ico('image',34))+'</div><div class="tx"><div class="t" style="font-weight:700">'+esc(d.title||d.kind||'')+'</div><div class="muted">'+esc(d.kind||'')+' · '+esc(fdate(d.date))+'</div></div></button>';}).join('')+'</div>':emptyBox('עוד אין תעודות משלוח או תיעוד של הספק הזה בפרויקט.');
+    return '<button class="doc" data-act="edit" data-e="supdoc" data-id="'+esc(d.id)+'"><div class="im">'+(d.photo?mediaTag(d.photo):ico('image',34))+'</div><div class="tx"><div class="t" style="font-weight:700">'+esc(d.title||d.kind||'')+'</div><div class="muted">'+esc(d.kind||'')+' · '+esc(fdate(d.date))+'</div></div></button>';}).join('')+'</div>':emptyBox('עוד אין תעודות משלוח או תיעוד של הספק הזה בפרויקט.');
   if(ords.length)h+='<div class="sec"><h2>הזמנות</h2></div><div class="stack">'+ords.map(function(o){return '<div class="item"><div class="main"><div class="t">'+esc(o.item)+'</div><div class="muted">'+esc(o.note||'')+'</div></div>'+chip(ORD_CHIP[o.status]||'neutral',o.status)+'</div>';}).join('')+'</div>';
   if(exps.length)h+='<div class="sec"><h2>הוצאות · '+money(sum(exps))+'</h2></div><div class="stack">'+sortExp(exps).map(expRow.bind(null,false)).join('')+'</div>';
   h+='<div style="text-align:center;margin:22px 0 4px"><button class="link" data-act="rmpsup" data-id="'+esc(s.id)+'">הסר ספק מהפרויקט</button></div>';
@@ -487,7 +489,7 @@ function vProject(){
   }else if(UI.tab==='docs'){
     h+='<div class="sec" style="margin-top:12px"><h2>תיעוד</h2>'+addBtn('doc','הוסף',p.id)+'</div>';
     h+=docs.length?'<div class="docs">'+docs.slice().sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''));}).map(function(d){
-      return '<button class="doc" data-act="edit" data-e="doc" data-id="'+esc(d.id)+'"><div class="im">'+(d.photo?'<img src="'+purl(d.photo)+'" alt="">':ico('image',34))+'</div><div class="tx"><div class="t" style="font-weight:700">'+esc(d.title)+'</div><div class="muted">'+(d.stage?esc(d.stage)+' · ':'')+fdate(d.date)+'</div></div></button>';}).join('')+'</div>':emptyBox('עוד אין תיעוד. צלם תמונה ראשונה.');
+      return '<button class="doc" data-act="edit" data-e="doc" data-id="'+esc(d.id)+'"><div class="im">'+(d.photo?mediaTag(d.photo):ico('image',34))+'</div><div class="tx"><div class="t" style="font-weight:700">'+esc(d.title)+'</div><div class="muted">'+(d.stage?esc(d.stage)+' · ':'')+fdate(d.date)+'</div></div></button>';}).join('')+'</div>':emptyBox('עוד אין תיעוד. צלם תמונה ראשונה.');
   }else{
     h+='<div class="sec" style="margin-top:12px"><h2>הודעות עם הלקוח</h2></div>'+msgsHtml(p.id);
   }
@@ -534,7 +536,7 @@ function repField(p){
   h+=repTasks('משימות שבוצעו',done,'ok','done')+repTasks('משימות בתהליך',prog,'warn','open')+repTasks('משימות שנותרו לביצוע',todo,'todo','open');
   if(!tasks.length)h+='<p>עדיין לא הוגדרו משימות בפרויקט.</p>';
   if(UI.repPhotos!==false){
-    var docs=S.docs.filter(function(d){return d.projectId===p.id&&d.photo;}).sort(function(a,b){return String(a.date||'').localeCompare(String(b.date||''));});
+    var docs=S.docs.filter(function(d){return d.projectId===p.id&&d.photo&&!isVid(d.photo);}).sort(function(a,b){return String(a.date||'').localeCompare(String(b.date||''));});
     if(docs.length)h+='<h2>תיעוד מהשטח</h2><div class="rphotos">'+docs.map(function(d){return '<figure><img src="'+purl(d.photo)+'" alt=""><figcaption><b>'+esc(d.title||'')+'</b><br>'+(d.stage?esc(d.stage)+' · ':'')+esc(fdate(d.date))+(d.note?'<br>'+esc(d.note):'')+'</figcaption></figure>';}).join('')+'</div>';
   }
   return h;
@@ -723,7 +725,7 @@ function vClient(){
   h+='<div class="sec"><h2>מה נותר לבצע</h2></div>'+(open.length?'<div class="stack">'+sortTasks(open).map(taskRow.bind(null,false,false)).join('')+'</div>':emptyBox('הכול בוצע!'));
   h+='<div class="sec"><h2>מה בוצע</h2></div>'+(done.length?'<div class="stack">'+done.map(taskRow.bind(null,false,false)).join('')+'</div>':emptyBox('עוד לא הושלמו משימות.'));
   var docs=S.docs.filter(function(d){return d.projectId===p.id&&d.photo;});
-  if(docs.length)h+='<div class="sec"><h2>תמונות מהשטח</h2></div><div class="docs">'+docs.map(function(d){return '<button class="doc" data-act="photo" data-id="'+esc(d.photo)+'"><div class="im"><img src="'+purl(d.photo)+'" alt=""></div><div class="tx"><div class="t" style="font-weight:700">'+esc(d.title)+'</div><div class="muted">'+fdate(d.date)+'</div></div></button>';}).join('')+'</div>';
+  if(docs.length)h+='<div class="sec"><h2>תמונות מהשטח</h2></div><div class="docs">'+docs.map(function(d){return '<button class="doc" data-act="photo" data-id="'+esc(d.photo)+'"><div class="im">'+mediaTag(d.photo)+'</div><div class="tx"><div class="t" style="font-weight:700">'+esc(d.title)+'</div><div class="muted">'+fdate(d.date)+'</div></div></button>';}).join('')+'</div>';
   h+='<div class="sec"><h2>הודעות</h2></div>'+msgsHtml(p.id);
   h+='<div style="text-align:center;margin:26px 0 90px"><button class="link" data-act="logout">התנתקות</button></div>';
   return h+'</main>';
@@ -828,9 +830,12 @@ function fieldHtml(f,val){
     inp='<div id="contacts">'+arr.map(crowHtml).join('')+'</div><button type="button" class="btn btn-line" data-act="addcontact">'+ico('plus',20)+'הוסף איש קשר</button>';
   }
   else if(f.t==='photo'){
-    inp='<div class="ph"><div class="phprev" id="phprev">'+(val?'<img src="'+purl(val)+'" alt="">':ico('camera',40))+'</div>'+
-      '<div class="grid2"><span class="btn btn-navy filebtn">'+ico('camera',22)+'צלם עכשיו<input type="file" accept="image/*" capture="environment" class="photoin" aria-label="צלם במצלמה"></span>'+
-      '<span class="btn btn-line filebtn">'+ico('image',22)+'מהגלריה<input type="file" accept="image/*" class="photoin" aria-label="בחר תמונה מהגלריה"></span></div>'+(val?'<button type="button" class="btn btn-line" data-act="rmphoto">הסר תמונה</button>':'')+'</div>';
+    var vd=!!f.vid;
+    inp='<div class="ph"><div class="phprev" id="phprev">'+(val?mediaTag(val,true):ico('camera',40))+'</div>'+
+      '<div class="grid2"><span class="btn btn-navy filebtn">'+ico('camera',22)+'צלם תמונה<input type="file" accept="image/*" capture="environment" class="photoin" aria-label="צלם במצלמה"></span>'+
+      '<span class="btn btn-line filebtn">'+ico('image',22)+(vd?'תמונה/וידאו מהגלריה':'מהגלריה')+'<input type="file" accept="'+(vd?'image/*,video/*':'image/*')+'" class="photoin" aria-label="בחר מהגלריה"></span></div>'+
+      (vd?'<div class="grid2" style="margin-top:8px"><span class="btn btn-navy filebtn" style="grid-column:1/-1">'+ico('play',22)+'צלם וידאו (עד 50MB)<input type="file" accept="video/*" capture="environment" class="photoin" aria-label="צלם וידאו"></span></div>':'')+
+      (val?'<button type="button" class="btn btn-line" data-act="rmphoto">הסר</button>':'')+'</div>';
   }
   else inp='<input id="'+id+'" type="'+(f.t==='number'?'text':f.t)+'"'+(f.t==='number'?' inputmode="decimal"':'')+(f.list?' list="dl_'+f.list+'"':'')+' value="'+esc(val)+'" autocomplete="off">';
   var lab=(f.t==='photo'||f.t==='contacts'||f.t==='file')?'<span style="font-size:15px;font-weight:700">'+esc(f.l)+'</span>':'<label for="'+id+'">'+esc(f.l)+(f.req?' *':'')+'</label>';
@@ -953,9 +958,11 @@ async function submitForm(ev){
     if(hasPhoto){
       if(form.file){
         btn.textContent='מעלה תמונה…';
-        var blob=await shrink(form.file);
-        var path=AUTH.uid+'/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+'.jpg';
-        var up=await sb.storage.from('photos').upload(path,blob,{contentType:'image/jpeg'});
+        var isv=/^video\//.test(form.file.type),vext=((form.file.name||'').match(/\.([A-Za-z0-9]{2,4})$/)||[])[1]||'mp4';
+        if(isv)btn.textContent='מעלה וידאו… (עשוי לקחת רגע)';
+        var blob=isv?form.file:await shrink(form.file);
+        var path=AUTH.uid+'/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+(isv?'.'+vext.toLowerCase():'.jpg');
+        var up=await sb.storage.from('photos').upload(path,blob,{contentType:isv?(form.file.type||'video/mp4'):'image/jpeg'});
         if(up.error)throw up.error;
         data.photo=path;
       }else if(form.removed){data.photo=null;}
@@ -1063,7 +1070,7 @@ document.addEventListener('click',function(ev){
   else if(a==='rmphoto'){if(form){form.removed=true;form.file=null;var p=$('#phprev');if(p)p.innerHTML=ico('camera',40);el.remove();}}
   else if(a==='toggle'){var t=byId('tasks',id);if(t)sb.from('tasks').update(t.status==='הושלם'?{status:'לביצוע',done_at:null}:{status:'הושלם',done_at:new Date().toISOString()}).eq('id',id).then(function(){loadTable('tasks');});}
   else if(a==='cycle'){var o=byId('orders',id);if(o)sb.from('orders').update({status:ORD_NEXT[o.status]||'הוזמן'}).eq('id',id).then(function(){loadTable('orders');});}
-  else if(a==='photo'){var lb=document.createElement('button');lb.className='lightbox';lb.setAttribute('aria-label','סגור תמונה');lb.innerHTML='<img src="'+purl(id)+'" alt="תמונה">';lb.onclick=function(){lb.remove();if(history.state&&history.state.lb)history.back();};document.body.appendChild(lb);pushOverlay('lb');}
+  else if(a==='photo'){var lb=document.createElement('button');lb.className='lightbox';lb.setAttribute('aria-label','סגור תמונה');lb.innerHTML=isVid(id)?'<video src="'+purl(id)+'" controls autoplay playsinline style="max-width:100%;max-height:100%"></video>':'<img src="'+purl(id)+'" alt="תמונה">';lb.onclick=function(ev){if(ev.target.tagName==='VIDEO')return;lb.remove();if(history.state&&history.state.lb)history.back();};document.body.appendChild(lb);pushOverlay('lb');}
   else if(a==='import'){startImport();}
   else if(a==='addcontact'){var cc=$('#contacts');if(cc){cc.insertAdjacentHTML('beforeend',crowHtml());var ins=cc.querySelectorAll('.c_n');ins[ins.length-1].focus();}}
   else if(a==='rmcontact'){var rw=el.closest('.crow');if(rw)rw.remove();}
@@ -1109,8 +1116,10 @@ document.addEventListener('change',function(ev){
     var fn=$('#filename');if(fn)fn.textContent=f2.name;
     var ti=$('#f_title');if(ti&&!ti.value)ti.value=f2.name.replace(/\.[^.]+$/,'');
   }else if(t.classList&&t.classList.contains('photoin')&&form){
-    var f=t.files&&t.files[0];if(!f)return;form.file=f;form.removed=false;
-    var p=$('#phprev');if(p){var im=document.createElement('img');im.alt='';im.src=URL.createObjectURL(f);p.innerHTML='';p.appendChild(im);}
+    var f=t.files&&t.files[0];if(!f)return;
+    if(/^video\//.test(f.type)&&f.size>50*1024*1024){ferr('הסרטון גדול מדי ('+Math.round(f.size/1048576)+'MB). המקסימום 50MB, צלם סרטון קצר יותר.');t.value='';return;}
+    ferr('');form.file=f;form.removed=false;
+    var p=$('#phprev');if(p){var isv=/^video\//.test(f.type),im=document.createElement(isv?'video':'img');if(isv){im.controls=true;im.muted=true;im.setAttribute('playsinline','');}else im.alt='';im.src=URL.createObjectURL(f);p.innerHTML='';p.appendChild(im);}
   }else if(t.getAttribute&&t.getAttribute('data-rp')){UI.repPhotos=t.checked;render();
   }else if(t.getAttribute&&t.getAttribute('data-tm')){
     sb.from('team_members').update({user_id:t.value||null}).eq('id',t.getAttribute('data-tm')).then(function(r){if(r.error)toast('לא ניתן לחבר: אותו משתמש כבר מחובר לאדם אחר?');loadTable('team_members');});
