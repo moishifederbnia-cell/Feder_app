@@ -257,7 +257,7 @@ var F={
  project:{title:'פרויקט',col:'projects',fields:[
   {k:'name',l:'שם הפרויקט',t:'text',req:1},{k:'address',l:'כתובת',t:'text'},
   {k:'clientName',l:'שם הלקוח',t:'text'},{k:'clientPhone',l:'טלפון הלקוח',t:'tel'},
-  {k:'status',l:'סטטוס',t:'select',o:['בהתחלה','בביצוע','סיום'],d:'בביצוע'},
+  {k:'status',l:'סטטוס',t:'select',o:['בהתחלה','בביצוע','בפינישים','הסתיים'],d:'בביצוע'},
   {k:'budget',l:'תקציב (₪)',t:'number'}]},
  task:{title:'משימה',col:'tasks',fields:[
   {k:'projectId',l:'פרויקט',t:'project',req:1},{k:'title',l:'מה צריך לעשות',t:'text',req:1},{k:'title_ar',l:'כותרת בערבית (לא חובה, לעובד שטח)',t:'text'},
@@ -291,7 +291,7 @@ var F={
   {k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'הערה',t:'textarea'}]}
 };
 var TASK_CHIP={'לביצוע':'neutral','בתהליך':'warn','הושלם':'ok'};
-var PROJ_CHIP={'בהתחלה':'info','בביצוע':'warn','סיום':'ok'};
+var PROJ_CHIP={'בהתחלה':'start','בביצוע':'run','בפינישים':'info','הסתיים':'ok','סיום':'ok'};
 var ORD_CHIP={'לא הוזמן':'warn','הוזמן':'info','הגיע':'ok'};
 var ORD_NEXT={'לא הוזמן':'הוזמן','הוזמן':'הגיע','הגיע':'לא הוזמן'};
 
@@ -361,7 +361,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 27</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 28</div>';
   return h+'</main>';
 }
 function vProjects(){

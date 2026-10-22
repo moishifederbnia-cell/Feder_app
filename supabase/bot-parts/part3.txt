@@ -79,7 +79,8 @@
     }
     case "set_project_status": {
       if (!proj) return needProj;
-      if (!["בהתחלה", "בביצוע", "סיום"].includes(a.status)) return "איזה סטטוס? בהתחלה / בביצוע / סיום";
+      if (a.status === "סיום") a.status = "הסתיים";
+      if (!["בהתחלה", "בביצוע", "בפינישים", "הסתיים"].includes(a.status)) return "איזה סטטוס? בהתחלה / בביצוע / בפינישים / הסתיים";
       const { error } = await db.from("projects").update({ status: a.status }).eq("id", proj.id);
       return error ? "לא הצלחתי לעדכן." : `נשמר ✓ ${proj.name}: ${a.status}`;
     }

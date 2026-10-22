@@ -280,7 +280,7 @@ ${common}`;
 - edit_expense / delete_expense: הוצאה קיימת. vendor ו/או amount מזהים, או last=true ל"האחרונה". לחדשים: new_amount, new_vendor, pay.
 - expense_summary: כמה הוצאנו. project_name אופציונלי, vendor אופציונלי, pay אופציונלי, period (week/month/all), group_by.
 - project_summary: מצב פרויקט (הוצאות ומשימות).
-- create_project: פרויקט חדש (project_name = שם חדש, address, client_name). set_project_status: status אחד מ: בהתחלה, בביצוע, סיום.
+- create_project: פרויקט חדש (project_name = שם חדש, address, client_name). set_project_status: status אחד מ: בהתחלה, בביצוע, בפינישים, הסתיים.
 - find_supplier: טלפון/פרטי ספק (supplier_name). add_supplier: ספק חדש. link_supplier: שיוך ספק לפרויקט.
 - add_order: הזמנת חומר (item, supplier_name אופציונלי, status). update_order: item מזהה + status חדש. list_orders: הזמנות פתוחות.
 - add_doc: תיעוד עבודה באתר (תמונה או וידאו שאינם קבלה). title קצר, stage אם ברור.
@@ -537,7 +537,8 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
     }
     case "set_project_status": {
       if (!proj) return needProj;
-      if (!["בהתחלה", "בביצוע", "סיום"].includes(a.status)) return "איזה סטטוס? בהתחלה / בביצוע / סיום";
+      if (a.status === "סיום") a.status = "הסתיים";
+      if (!["בהתחלה", "בביצוע", "בפינישים", "הסתיים"].includes(a.status)) return "איזה סטטוס? בהתחלה / בביצוע / בפינישים / הסתיים";
       const { error } = await db.from("projects").update({ status: a.status }).eq("id", proj.id);
       return error ? "לא הצלחתי לעדכן." : `נשמר ✓ ${proj.name}: ${a.status}`;
     }
