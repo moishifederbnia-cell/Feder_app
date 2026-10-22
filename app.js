@@ -318,7 +318,18 @@ function projectCard(p){
    '<div class="bar" role="img" aria-label="התקדמות '+pct+' אחוז"><i style="width:'+pct+'%"></i></div>'+
    '<div class="meta"><span>'+open+' משימות פתוחות</span><span>'+money(spent)+'</span></div></button>';
 }
-function sortedProjects(){return S.projects.slice().sort(function(a,b){return String(a.name||'').localeCompare(String(b.name||''),'he');});}
+var PSORT=[['az','לפי א-ב'],['status','לפי סטטוס'],['new','החדשים ראשון'],['old','הישנים ראשון']];
+var PST=['בהתחלה','בביצוע','בפינישים','הסתיים','סיום'];
+function projSortKey(){var v=lsGet('feder_psort');return PSORT.some(function(x){return x[0]===v;})?v:'az';}
+function sortedProjects(){
+  var k=projSortKey(),az=function(a,b){return String(a.name||'').localeCompare(String(b.name||''),'he');},ts=function(p){return Date.parse(p.createdAt||'')||0;};
+  return S.projects.slice().sort(function(a,b){
+    if(k==='status'){var d=PST.indexOf(a.status)-PST.indexOf(b.status);return d||az(a,b);}
+    if(k==='new')return ts(b)-ts(a)||az(a,b);
+    if(k==='old')return ts(a)-ts(b)||az(a,b);
+    return az(a,b);
+  });
+}
 
 function vHome(){
   var mk=todayStr().slice(0,7);
@@ -361,13 +372,14 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 29</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 30</div>';
   return h+'</main>';
 }
 function vProjects(){
   var h=bandHtml('הפרויקטים',null,{right:'<button class="btn btn-accent" data-act="add" data-e="project">'+ico('plus',20)+'חדש</button>'});
   h+='<main class="wrap" style="'+PULL+'">';
   if(S.projects.length)h+='<button class="btn btn-line" style="width:100%;margin-bottom:12px;background:var(--surface)" data-act="reportall">דוח כללי לכל הפרויקטים</button>';
+  if(S.projects.length>1)h+='<div class="fld" style="margin:0 0 12px"><label for="psort">מיין לפי</label><select id="psort" data-psort="1">'+PSORT.map(function(x){return '<option value="'+x[0]+'"'+(projSortKey()===x[0]?' selected':'')+'>'+x[1]+'</option>';}).join('')+'</select></div>';
   h+=S.projects.length?'<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>':emptyBox('עוד אין פרויקטים.',addBtn('project','פרויקט חדש'));
   return h+'</main>';
 }
@@ -1198,6 +1210,7 @@ document.addEventListener('change',function(ev){
     sb.from('team_members').update({phone:t.value.trim()||null}).eq('id',t.getAttribute('data-tmph')).then(function(r){if(r.error)toast('לא נשמר הטלפון.');else toast('הטלפון נשמר ✓');loadTable('team_members');});
   }else if(t.getAttribute&&t.getAttribute('data-tm')){
     sb.from('team_members').update({user_id:t.value||null}).eq('id',t.getAttribute('data-tm')).then(function(r){if(r.error)toast('לא ניתן לחבר: אותו משתמש כבר מחובר לאדם אחר?');loadTable('team_members');});
+  }else if(t.getAttribute&&t.getAttribute('data-psort')){lsSet('feder_psort',t.value);render();
   }else if(t.getAttribute&&t.getAttribute('data-role')){
     sb.from('profiles').update({role:t.value}).eq('id',t.getAttribute('data-role')).then(function(){loadTable('profiles');});
   }else if(t.getAttribute&&t.getAttribute('data-cp')){
