@@ -18,8 +18,10 @@ const HELP = `אני הבוט של פדר בניה. דוגמאות:
 • משימה הנוף: להזמין בטון עד 25/10
 • הוצאה 350 חשמל בנימין הנוף אשראי
 • (שלח תמונת קבלה עם כיתוב כמו ההוצאה)
+• תיעוד: תמונה עם כיתוב "תיעוד הנוף חשמל"
 • מה פתוח הנוף`;
 
+const STAGES = ["שלד", "אינסטלציה", "חשמל", "איטום", "טיח", "ריצוף", "גמר", "אחר"];
 function ymd(d: Date) {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
@@ -37,7 +39,12 @@ function findProject(text: string, projects: any[]) {
 }
 function strip(text: string, bits: string[]) {
   let t = text;
-  for (const b of bits) if (b) t = t.replace(new RegExp(b.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"), " ");
+  for (const b of bits) {
+    if (!b) continue;
+    const anchored = b.startsWith("^");
+    const core = (anchored ? b.slice(1) : b).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    t = t.replace(new RegExp((anchored ? "^\\s*" : "") + core, "i"), " ");
+  }
   return t.replace(/[:：]/g, " ").replace(/\s+/g, " ").trim();
 }
 function parseDue(text: string) {
@@ -70,6 +77,15 @@ async function handleText(text: string, photoPath: string | null) {
     const { error } = await db.from("tasks").insert({ project_id: proj.id, title, due, status: "לביצוע" });
     if (error) return "לא הצלחתי לשמור את המשימה.";
     return `נשמר ✓ משימה ב"${proj.name}": ${title}${due ? ` (עד ${due})` : ""}`;
+  }
+
+  if (lead === "תיעוד" || (photoPath && lead !== "הוצאה" && !/\d/.test(text) && text.trim())) {
+    if (!proj) return "לא זיהיתי פרויקט. כתוב את שם הפרויקט בכיתוב, למשל: תיעוד הנוף חשמל";
+    const stage = STAGES.find((x) => text.includes(x)) || null;
+    const title = strip(text, ["^תיעוד", proj.name]) || stage || "תיעוד";
+    const { error } = await db.from("docs").insert({ project_id: proj.id, title, stage, photo: photoPath, date: ymd(il()) });
+    if (error) return "לא הצלחתי לשמור את התיעוד.";
+    return `נשמר ✓ תיעוד ב"${proj.name}": ${title}${stage ? " · " + stage : ""}${photoPath ? " · עם תמונה" : ""}`;
   }
 
   if (lead === "הוצאה" || photoPath) {
@@ -127,7 +143,7 @@ const ACT_TOOL = {
   input_schema: {
     type: "object",
     properties: {
-      action: { type: "string", enum: ["add_task", "add_expense", "list_open_tasks", "complete_task", "project_summary", "chat"] },
+      action: { type: "string", enum: ["add_task", "add_expense", "add_doc", "list_open_tasks", "complete_task", "project_summary", "chat"] },
       project_name: { type: "string", description: "Project name exactly as in the projects list, or empty if not stated/unclear" },
       title: { type: "string", description: "Task text (add_task) or text identifying the task to close (complete_task)" },
       due: { type: "string", description: "Due date YYYY-MM-DD, or empty" },
@@ -135,7 +151,8 @@ const ACT_TOOL = {
       vendor: { type: "string", description: "Supplier/store name" },
       pay: { type: "string", enum: ["מזומן", "אשראי", ""], description: "Payment method if stated or visible, else empty" },
       date: { type: "string", description: "Expense date YYYY-MM-DD if visible on a receipt, else empty" },
-      note: { type: "string", description: "Short note for the expense, or empty" },
+      note: { type: "string", description: "Short note for the expense or documentation, or empty" },
+      stage: { type: "string", description: "For add_doc: the work stage, one of: שלד, אינסטלציה, חשמל, איטום, טיח, ריצוף, גמר, אחר (or empty)" },
       reply: { type: "string", description: "For action=chat only: a short Hebrew answer or a question asking for the missing detail" },
     },
     required: ["action"],
@@ -150,6 +167,7 @@ async function aiParse(text: string, img: { buf: Uint8Array; mime: string } | nu
 כללים:
 - add_task: משימה חדשה. due אם צוין תאריך או "מחר"/"יום ראשון" וכו' (חשב לפי התאריך של היום).
 - add_expense: הוצאה או קבלה. אם יש תמונת קבלה, קרא ממנה את הסכום הכולל (בשקלים), שם העסק, התאריך ואמצעי התשלום אם מופיע. טקסט המשתמש גובר על התמונה.
+- add_doc: תיעוד עבודה באתר (תמונה של מצב העבודה, לא קבלה). title = כותרת קצרה (מה רואים), stage = שלב עבודה אם ברור. תמונה שאינה קבלה ואינה בקשה אחרת היא תיעוד.
 - list_open_tasks: שאלה מה פתוח/מה צריך לעשות.
 - complete_task: ביקש לסגור/לסמן כבוצעה משימה. title = מילים מזהות של המשימה.
 - project_summary: שאלה כמה הוצאנו / מצב / סיכום של פרויקט.
@@ -212,6 +230,14 @@ async function handleAI(text: string, img: { buf: Uint8Array; mime: string } | n
       if (error) return "לא הצלחתי לשמור את ההוצאה.";
       return `נשמר ✓ הוצאה ב"${proj.name}": ${vendor} ${amount} ₪${pay ? " · " + pay : ""}${photoPath ? " · עם קבלה" : ""}`;
     }
+    case "add_doc": {
+      if (!proj) return needProj;
+      const title = String(a.title || "").trim() || "תיעוד";
+      const stage = STAGES.includes(a.stage) ? a.stage : null;
+      const { error } = await db.from("docs").insert({ project_id: proj.id, title, stage, note: a.note || null, photo: photoPath, date: ymd(il()) });
+      if (error) return "לא הצלחתי לשמור את התיעוד.";
+      return `נשמר ✓ תיעוד ב"${proj.name}": ${title}${stage ? " · " + stage : ""}${photoPath ? " · עם תמונה" : ""}`;
+    }
     case "list_open_tasks": {
       let q = db.from("tasks").select("title,due,project_id").neq("status", "הושלם").order("due", { ascending: true, nullsFirst: false }).limit(15);
       if (proj) q = q.eq("project_id", proj.id);
@@ -258,7 +284,7 @@ async function route(text: string, mediaId: string | null) {
   if (AI_KEY) {
     try { return await handleAI(text, img, photoPath); } catch (_e) { /* fall back to rules */ }
   }
-  if (mediaId && !text) return "קיבלתי את התמונה, אבל חסר כיתוב. שלח שוב עם כיתוב, למשל: 350 חשמל בנימין הנוף אשראי";
+  if (mediaId && !text) return "קיבלתי את התמונה, אבל חסר כיתוב. לתיעוד כתוב: תיעוד הנוף חשמל. לקבלה כתוב: 350 חשמל בנימין הנוף אשראי";
   return await handleText(text, photoPath);
 }
 
