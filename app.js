@@ -287,7 +287,7 @@ var F={
   {k:'title',l:'כותרת (לא חובה)',t:'text'},{k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'הערה',t:'textarea'}]},
  doc:{title:'תיעוד',col:'docs',fields:[
   {k:'photo',l:'תמונה או וידאו',t:'photo',vid:1},{k:'projectId',l:'פרויקט',t:'project',req:1},
-  {k:'title',l:'כותרת',t:'text',req:1},{k:'stage',l:'שלב / תחום',t:'text',list:'stages'},
+  {k:'stage',l:'תחום',t:'select',o:['חשמל','אינסטלציה','איטום','ריצוף','בנייה','הריסה','משימה','אחר'],d:'אחר'},
   {k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'הערה',t:'textarea'}]}
 };
 var TASK_CHIP={'לביצוע':'neutral','בתהליך':'warn','הושלם':'ok'};
@@ -372,7 +372,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 30</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 31</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -552,7 +552,7 @@ function vProject(){
   }else if(UI.tab==='docs'){
     h+='<div class="sec" style="margin-top:12px"><h2>תיעוד</h2>'+addBtn('doc','הוסף',p.id)+'</div>';
     h+=docs.length?'<div class="docs">'+docs.slice().sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''));}).map(function(d){
-      return '<button class="doc" data-act="edit" data-e="doc" data-id="'+esc(d.id)+'"><div class="im">'+(d.photo?mediaTag(d.photo):ico('image',34))+'</div><div class="tx"><div class="t" style="font-weight:700">'+esc(d.title)+'</div><div class="muted">'+(d.stage?esc(d.stage)+' · ':'')+fdate(d.date)+'</div></div></button>';}).join('')+'</div>':emptyBox('עוד אין תיעוד. צלם תמונה ראשונה.');
+      return '<button class="doc" data-act="edit" data-e="doc" data-id="'+esc(d.id)+'"><div class="im">'+(d.photo?mediaTag(d.photo):ico('image',34))+'</div><div class="tx"><div class="t" style="font-weight:700">'+esc(d.title||d.stage||'תיעוד')+'</div><div class="muted">'+(d.stage&&d.stage!==d.title?esc(d.stage)+' · ':'')+fdate(d.date)+'</div></div></button>';}).join('')+'</div>':emptyBox('עוד אין תיעוד. צלם תמונה ראשונה.');
   }else{
     h+='<div class="sec" style="margin-top:12px"><h2>הודעות עם הלקוח</h2></div>'+msgsHtml(p.id);
   }
@@ -884,7 +884,7 @@ function fieldHtml(f,val){
   else if(f.t==='project')inp='<select id="'+id+'">'+projOptions(val)+'</select>';
   else if(f.t==='assignee')inp='<select id="'+id+'">'+assigneeOptions(val)+'</select>';
   else if(f.t==='supplier')inp='<select id="'+id+'">'+supOptions(val)+'</select>';
-  else if(f.t==='select')inp='<select id="'+id+'">'+f.o.map(function(o){return '<option'+(val===o?' selected':'')+'>'+esc(o)+'</option>';}).join('')+'</select>';
+  else if(f.t==='select')inp='<select id="'+id+'">'+(val&&f.o.indexOf(val)<0?[val].concat(f.o):f.o).map(function(o){return '<option'+(val===o?' selected':'')+'>'+esc(o)+'</option>';}).join('')+'</select>';
   else if(f.t==='file'){
     var cur=form&&form.id?byId('plans',form.id):null;
     inp='<div class="ph"><span class="btn btn-navy filebtn">'+ico('plus',22)+'בחר קובץ<input type="file" class="filein" accept=".pdf,.dwg,.dxf,.doc,.docx,.xls,.xlsx,image/*" aria-label="בחר קובץ"></span><div class="muted" id="filename">'+(cur?'קובץ נוכחי: '+esc(cur.file_name||''):'לא נבחר קובץ')+'</div></div>';
@@ -990,6 +990,7 @@ async function submitForm(ev){
     if(data.status==='הושלם'){if(!(exT&&exT.done_at))data.done_at=new Date().toISOString();}
     else if(exT&&exT.done_at)data.done_at=null;
   }
+  if(form.e==='doc'){data.title=data.stage||'תיעוד';}
   if(form.e==='project'){
     var exP=form.id?byId('projects',form.id):null;
     if(!form.id){data.id=(window.crypto&&crypto.randomUUID?crypto.randomUUID():String(Date.now()));}
