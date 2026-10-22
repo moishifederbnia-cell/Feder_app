@@ -4,11 +4,11 @@ var SUPABASE_URL='https://jaaidfpfeihxfhzxsuak.supabase.co';
 var SUPABASE_KEY='sb_publishable_I7m0DLUAqWRNdkKdPq9JBw_2khMl1No';
 var sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
 
-var TABLES=['projects','tasks','expenses','suppliers','orders','docs','messages','events','profiles','client_projects','plans','team_members'];
-var S={plans:[],projects:[],tasks:[],expenses:[],suppliers:[],orders:[],docs:[],messages:[],events:[],profiles:[],client_projects:[],team_members:[]};
+var TABLES=['projects','tasks','expenses','suppliers','orders','docs','messages','events','profiles','client_projects','plans','team_members','project_suppliers','supplier_docs'];
+var S={plans:[],projects:[],tasks:[],expenses:[],suppliers:[],orders:[],docs:[],messages:[],events:[],profiles:[],client_projects:[],team_members:[],project_suppliers:[],supplier_docs:[]};
 var loaded={};
 var AUTH={state:'loading',uid:null,name:'',role:'',msg:'',ok:''};
-var UI={calMonth:null,calSel:null,view:'home',projectId:null,tab:'tasks',taskFilter:'open',taskProject:'',taskPerson:'',expProject:'',supQuery:'',supField:'',supProject:'',clientProject:null};
+var UI={calMonth:null,calSel:null,view:'home',projectId:null,tab:'tasks',taskFilter:'open',taskProject:'',taskPerson:'',projSup:'',projSupFor:'',expProject:'',supQuery:'',supField:'',supProject:'',clientProject:null};
 var form=null;
 var LOGO='icons/logo.png';
 var PHOTO={};
@@ -228,6 +228,10 @@ var F={
  plan:{title:'תוכנית / קובץ',col:'plans',fields:[
   {k:'file',l:'הקובץ (PDF, תמונה, DWG...)',t:'file'},{k:'projectId',l:'פרויקט',t:'project',req:1},
   {k:'title',l:'שם התוכנית',t:'text'},{k:'notes',l:'הערות',t:'textarea'}]},
+ supdoc:{title:'תעודה / תיעוד של ספק',col:'supplier_docs',fields:[
+  {k:'photo',l:'תמונה',t:'photo'},{k:'projectId',l:'פרויקט',t:'project',req:1},{k:'supplierId',l:'ספק',t:'supplier',req:1},
+  {k:'kind',l:'סוג',t:'select',o:['תעודת משלוח','תיעוד'],d:'תעודת משלוח'},
+  {k:'title',l:'כותרת (לא חובה)',t:'text'},{k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'הערה',t:'textarea'}]},
  doc:{title:'תיעוד',col:'docs',fields:[
   {k:'photo',l:'תמונה',t:'photo'},{k:'projectId',l:'פרויקט',t:'project',req:1},
   {k:'title',l:'כותרת',t:'text',req:1},{k:'stage',l:'שלב / תחום',t:'text',list:'stages'},
@@ -304,7 +308,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 16</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 17</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -419,6 +423,33 @@ function msgsHtml(pid){
   return h;
 }
 
+function projSupIds(pid){return S.project_suppliers.filter(function(x){return x.projectId===pid;}).map(function(x){return x.supplierId;});}
+function projSuppliersHtml(p){
+  var sid=UI.projSupFor===p.id?UI.projSup:'';
+  var s=sid?byId('suppliers',sid):null;
+  if(!s||projSupIds(p.id).indexOf(sid)<0){
+    var ids=projSupIds(p.id),list=S.suppliers.filter(function(x){return ids.indexOf(x.id)>=0;}).sort(function(a,b){return String(a.name).localeCompare(String(b.name),'he');});
+    var h='<div class="sec" style="margin-top:12px"><h2>ספקי הפרויקט</h2><button class="btn btn-accent" data-act="addpsup">'+ico('plus',20)+'הוסף ספק</button></div>';
+    h+=list.length?'<div class="stack">'+list.map(function(x){
+      var n=S.supplier_docs.filter(function(d){return d.projectId===p.id&&d.supplierId===x.id;}).length;
+      return '<div class="item"><button class="main" data-act="opensup" data-id="'+esc(x.id)+'"><div class="t">'+esc(x.name)+'</div><div class="muted">'+esc(x.field||'')+(n?' · '+n+' תעודות/תיעוד':'')+'</div></button>'+(x.phone?callBtns(x.phone,x.name):'')+'</div>';}).join('')+'</div>':emptyBox('עוד לא שויכו ספקים לפרויקט. לחץ "הוסף ספק" ובחר מהרשימה שלך.');
+    return h;
+  }
+  var docs=S.supplier_docs.filter(function(d){return d.projectId===p.id&&d.supplierId===s.id;}).sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''));});
+  var ords=S.orders.filter(function(o){return o.projectId===p.id&&o.supplierId===s.id;});
+  var exps=S.expenses.filter(function(x){return x.projectId===p.id&&x.vendor===s.name;});
+  var h='<button class="backlink" style="margin-top:10px" data-act="supback">'+ico('back',20)+'כל הספקים בפרויקט</button>';
+  h+='<div class="card" style="margin-top:8px"><div class="name">'+esc(s.name)+'</div><div class="muted">'+esc(s.field||'')+'</div>'+
+    (s.phone?'<div style="display:flex;align-items:center;gap:10px;margin-top:8px"><span class="ltr">'+esc(s.phone)+'</span>'+callBtns(s.phone,s.name)+'</div>':'')+
+    (s.contacts&&s.contacts.length?s.contacts.map(function(c){return '<div style="display:flex;align-items:center;gap:10px;margin-top:8px"><span>'+esc(c.name||'')+(c.role?' · '+esc(c.role):'')+'</span>'+(c.phone?'<span class="ltr muted">'+esc(c.phone)+'</span>'+callBtns(c.phone,c.name||s.name):'')+'</div>';}).join(''):'')+'</div>';
+  h+='<div class="sec"><h2>תעודות משלוח ותיעוד</h2><button class="btn btn-accent" data-act="add" data-e="supdoc" data-project="'+esc(p.id)+'" data-supplier="'+esc(s.id)+'">'+ico('camera',20)+'הוסף</button></div>';
+  h+=docs.length?'<div class="docs">'+docs.map(function(d){
+    return '<button class="doc" data-act="edit" data-e="supdoc" data-id="'+esc(d.id)+'"><div class="im">'+(d.photo?'<img src="'+purl(d.photo)+'" alt="">':ico('image',34))+'</div><div class="tx"><div class="t" style="font-weight:700">'+esc(d.title||d.kind||'')+'</div><div class="muted">'+esc(d.kind||'')+' · '+esc(fdate(d.date))+'</div></div></button>';}).join('')+'</div>':emptyBox('עוד אין תעודות משלוח או תיעוד של הספק הזה בפרויקט.');
+  if(ords.length)h+='<div class="sec"><h2>הזמנות</h2></div><div class="stack">'+ords.map(function(o){return '<div class="item"><div class="main"><div class="t">'+esc(o.item)+'</div><div class="muted">'+esc(o.note||'')+'</div></div>'+chip(ORD_CHIP[o.status]||'neutral',o.status)+'</div>';}).join('')+'</div>';
+  if(exps.length)h+='<div class="sec"><h2>הוצאות · '+money(sum(exps))+'</h2></div><div class="stack">'+sortExp(exps).map(expRow.bind(null,false)).join('')+'</div>';
+  h+='<div style="text-align:center;margin:22px 0 4px"><button class="link" data-act="rmpsup" data-id="'+esc(s.id)+'">הסר ספק מהפרויקט</button></div>';
+  return h;
+}
 function vProject(){
   var p=byId('projects',UI.projectId);
   if(!p){UI.view='projects';return vProjects();}
@@ -432,7 +463,7 @@ function vProject(){
   h+='<main class="wrap"><div class="card pull"><div class="row1"><span class="muted">הוצאות עד כה</span>'+(bud?'<span class="muted">תקציב '+money(bud)+'</span>':'')+'</div><div class="stat"><div class="v">'+money(spent)+'</div></div>'+(bud?'<div class="bar" role="img" aria-label="'+pct+' אחוז מהתקציב"><i style="width:'+pct+'%"></i></div>':'')+
      (p.clientName||p.clientPhone?'<div class="muted" style="margin-top:10px">לקוח: '+esc(p.clientName||'')+(p.clientPhone?' · <span class="ltr">'+esc(p.clientPhone)+'</span>':'')+'</div>':'')+'</div>';
   var plans=S.plans.filter(function(x){return x.projectId===p.id;});
-  var tabs=[['tasks','משימות',tasks.length],['expenses','הוצאות',exps.length],['orders','הזמנות',ords.length],['docs','תיעוד',docs.length],['plans','תוכניות',plans.length],['msgs','הודעות',msgs.length]];
+  var tabs=[['tasks','משימות',tasks.length],['expenses','הוצאות',exps.length],['orders','הזמנות',ords.length],['docs','תיעוד',docs.length],['plans','תוכניות',plans.length],['suppliers','ספקים',S.project_suppliers.filter(function(x){return x.projectId===p.id;}).length],['msgs','הודעות',msgs.length]];
   h+='<div class="tabs t6" role="group" aria-label="חלקי הפרויקט">'+tabs.map(function(t){return '<button class="tab" data-act="tab" data-t="'+t[0]+'" aria-pressed="'+(UI.tab===t[0])+'">'+t[1]+' '+t[2]+'</button>';}).join('')+'</div>';
   if(UI.tab==='tasks'){
     h+='<div class="sec" style="margin-top:12px"><h2>משימות</h2>'+addBtn('task','הוסף',p.id)+'</div>';
@@ -451,6 +482,8 @@ function vProject(){
     h+=plans.length?'<div class="stack">'+plans.slice().sort(function(a,b){return b.createdAt-a.createdAt;}).map(function(pl){
       var ty=String(pl.file_type||'').toUpperCase();
       return '<div class="item"><div class="ftype">'+esc(ty||'קובץ')+'</div><button class="main" data-act="edit" data-e="plan" data-id="'+esc(pl.id)+'"><div class="t">'+esc(pl.title)+'</div><div class="muted">'+esc(pl.file_name||'')+' · '+esc(fdate(String(pl.created_at||'').slice(0,10)))+'</div></button><button class="btn btn-navy" style="min-height:42px;font-size:15px" data-act="openplan" data-id="'+esc(pl.id)+'">פתח</button></div>';}).join('')+'</div>':emptyBox('עוד אין תוכניות. הוסף PDF או תמונה של תוכנית.');
+  }else if(UI.tab==='suppliers'){
+    h+=projSuppliersHtml(p);
   }else if(UI.tab==='docs'){
     h+='<div class="sec" style="margin-top:12px"><h2>תיעוד</h2>'+addBtn('doc','הוסף',p.id)+'</div>';
     h+=docs.length?'<div class="docs">'+docs.slice().sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''));}).map(function(d){
@@ -716,6 +749,22 @@ function draw(){
   if((aid==='msgin'||aid==='sq')&&$('#'+aid)){var n=$('#'+aid);n.focus({preventScroll:true});}
 }
 
+function openAddPsup(){
+  var pid=UI.projectId,have=projSupIds(pid);
+  var list=S.suppliers.filter(function(x){return have.indexOf(x.id)<0;}).sort(function(a,b){return String(a.name).localeCompare(String(b.name),'he');});
+  var html='<div class="scrim" data-act="closeSheet"></div><div class="sheet" role="dialog" aria-modal="true"><h2>הוסף ספקים לפרויקט</h2>'+
+   (list.length?'<div class="stack" style="margin-bottom:12px">'+list.map(function(x){return '<label class="chk item" style="padding:8px 12px"><input type="checkbox" data-psup="'+esc(x.id)+'"><span style="min-width:0"><b>'+esc(x.name)+'</b>'+(x.field?'<br><span class="muted">'+esc(x.field)+'</span>':'')+'</span></label>';}).join('')+'</div>':'<p class="muted" style="margin-bottom:12px">כל הספקים כבר משויכים, או שעוד לא הוספת ספקים בלשונית ספקים.</p>')+
+   '<p class="ferr" id="ferr" role="alert"></p><div class="fbtns">'+(list.length?'<button class="btn btn-accent" type="button" data-act="savepsup">הוסף לפרויקט</button>':'')+'<button class="btn btn-line" type="button" data-act="closeSheet">סגור</button></div></div>';
+  $('#layer').innerHTML=html;pushOverlay('sheet');
+}
+async function savePsup(){
+  var ids=[].slice.call(document.querySelectorAll('[data-psup]')).filter(function(c){return c.checked;}).map(function(c){return {project_id:UI.projectId,supplier_id:c.getAttribute('data-psup')};});
+  if(!ids.length){ferr('סמן לפחות ספק אחד.');return;}
+  var r=await sb.from('project_suppliers').upsert(ids,{onConflict:'project_id,supplier_id'});
+  if(r.error){ferr('לא הצלחתי לשמור. נסה שוב.');return;}
+  await loadTable('project_suppliers');closeSheet();
+}
+
 /* ---------- forms ---------- */
 function projOptions(sel){
   return '<option value="">בחר פרויקט</option>'+sortedProjects().map(function(p){return '<option value="'+esc(p.id)+'"'+(sel===p.id?' selected':'')+'>'+esc(p.name)+'</option>';}).join('');
@@ -771,7 +820,7 @@ function openForm(e,id,defs){
   var h=$('#sh_t');if(h)h.focus();
 }
 function closeSheet(fromPop){form=null;$('#layer').innerHTML='';if(fromPop!==true&&history.state&&history.state.sheet)history.back();}
-function navSnap(){return {view:UI.view,projectId:UI.projectId,tab:UI.view==='project'?UI.tab:''};}
+function navSnap(){return {view:UI.view,projectId:UI.projectId,tab:UI.view==='project'?UI.tab:'',sup:(UI.view==='project'&&UI.tab==='suppliers'&&UI.projSupFor===UI.projectId)?(UI.projSup||''):''};}
 var navKey=null;
 function navSync(){
   if(AUTH.state!=='app')return;
@@ -784,7 +833,7 @@ window.addEventListener('popstate',function(e){
   var st=e.state,lb=$('.lightbox');if(lb)lb.remove();
   if(!st||AUTH.state!=='app')return;
   if(!st.sheet&&($('#layer .sheet')||form))closeSheet(true);
-  if(st.view){UI.view=st.view;UI.projectId=st.projectId;if(st.tab)UI.tab=st.tab;navKey=JSON.stringify(navSnap());render();}
+  if(st.view){UI.view=st.view;UI.projectId=st.projectId;if(st.tab)UI.tab=st.tab;UI.projSup=st.sup||'';UI.projSupFor=st.projectId;navKey=JSON.stringify(navSnap());render();}
 });
 function ferr(m){var el=$('#ferr');if(el)el.textContent=m||'';}
 
@@ -894,6 +943,9 @@ async function submitForm(ev){
         }else{setTimeout(function(){toast(asg.name+' עוד לא מחובר/ת למשתמש, לא תישלח התראה.');},400);}
       }
     }
+    if((form.e==='supdoc'||form.e==='order')&&data.projectId&&data.supplierId){
+      try{await sb.from('project_suppliers').upsert({project_id:data.projectId,supplier_id:data.supplierId},{onConflict:'project_id,supplier_id'});await loadTable('project_suppliers');}catch(e4){}
+    }
     if(form.e==='event'&&!(form.id&&String(form.id).indexOf('g:')===0)){
       await setReminder('ev:'+(evId||''),evRaw.title,(evRaw.startTime?'בשעה '+evRaw.startTime:'כל היום'),remindWhen(evRaw.date,evRaw.startTime,evRaw.remind));
     }
@@ -964,6 +1016,7 @@ document.addEventListener('click',function(ev){
   else if(a==='add'){
     var d={};var pj=el.getAttribute('data-project');if(pj)d.projectId=pj;
     else if(UI.view==='project'&&UI.projectId)d.projectId=UI.projectId;
+    var sp=el.getAttribute('data-supplier');if(sp)d.supplierId=sp;
     if(el.getAttribute('data-e')==='event'&&UI.calSel)d.date=UI.calSel;
     openForm(el.getAttribute('data-e'),null,d);
   }
@@ -995,6 +1048,14 @@ document.addEventListener('click',function(ev){
   else if(a==='gdisc'){gDisconnect();}
   else if(a==='logout'){sb.auth.signOut();}
   else if(a==='pushon'){pushEnable();}
+  else if(a==='opensup'){UI.projSup=id;UI.projSupFor=UI.projectId;window.scrollTo(0,0);render();}
+  else if(a==='supback'){UI.projSup='';window.scrollTo(0,0);render();}
+  else if(a==='addpsup'){openAddPsup();}
+  else if(a==='rmpsup'){
+    if(!el.getAttribute('data-c')){el.setAttribute('data-c','1');el.textContent='לחץ שוב להסרה (התעודות נשמרות)';return;}
+    sb.from('project_suppliers').delete().eq('project_id',UI.projectId).eq('supplier_id',id).then(function(){UI.projSup='';return loadTable('project_suppliers');});
+  }
+  else if(a==='savepsup'){savePsup();}
   else if(a==='mytasks'){UI.taskPerson='me';UI.taskFilter='open';UI.view='tasks';window.scrollTo(0,0);render();}
   else if(a==='bell'){openBell();}
   else if(a==='reload'){location.reload();}
@@ -1059,12 +1120,12 @@ async function loadTable(t){
   var r=t==='client_projects'?await q:await q.order('created_at',{ascending:false});
   if(!r.error){S[t]=r.data.map(fromRow);}
   loaded[t]=true;
-  if(t==='expenses'||t==='docs')ensurePhotos();
+  if(t==='expenses'||t==='docs'||t==='supplier_docs')ensurePhotos();
   render();
 }
 async function loadAll(){await Promise.all(TABLES.map(loadTable));}
 async function ensurePhotos(){
-  var need=[];S.expenses.concat(S.docs).forEach(function(x){if(x.photo&&!PHOTO[x.photo]&&need.indexOf(x.photo)<0)need.push(x.photo);});
+  var need=[];S.expenses.concat(S.docs,S.supplier_docs).forEach(function(x){if(x.photo&&!PHOTO[x.photo]&&need.indexOf(x.photo)<0)need.push(x.photo);});
   if(!need.length)return;
   var r=await sb.storage.from('photos').createSignedUrls(need,21600);
   if(r.data){r.data.forEach(function(d){if(d.signedUrl&&d.path)PHOTO[d.path]=d.signedUrl;});render();}
