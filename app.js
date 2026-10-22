@@ -4,11 +4,11 @@ var SUPABASE_URL='https://jaaidfpfeihxfhzxsuak.supabase.co';
 var SUPABASE_KEY='sb_publishable_I7m0DLUAqWRNdkKdPq9JBw_2khMl1No';
 var sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
 
-var TABLES=['projects','tasks','expenses','suppliers','orders','docs','messages','events','profiles','client_projects','plans'];
-var S={plans:[],projects:[],tasks:[],expenses:[],suppliers:[],orders:[],docs:[],messages:[],events:[],profiles:[],client_projects:[]};
+var TABLES=['projects','tasks','expenses','suppliers','orders','docs','messages','events','profiles','client_projects','plans','team_members'];
+var S={plans:[],projects:[],tasks:[],expenses:[],suppliers:[],orders:[],docs:[],messages:[],events:[],profiles:[],client_projects:[],team_members:[]};
 var loaded={};
 var AUTH={state:'loading',uid:null,name:'',role:'',msg:'',ok:''};
-var UI={calMonth:null,calSel:null,view:'home',projectId:null,tab:'tasks',taskFilter:'open',taskProject:'',expProject:'',supQuery:'',supField:'',supProject:'',clientProject:null};
+var UI={calMonth:null,calSel:null,view:'home',projectId:null,tab:'tasks',taskFilter:'open',taskProject:'',taskPerson:'',expProject:'',supQuery:'',supField:'',supProject:'',clientProject:null};
 var form=null;
 var LOGO='icons/logo.png';
 var PHOTO={};
@@ -98,12 +98,12 @@ function toast(t){
   d.style.cssText='position:fixed;left:12px;right:12px;bottom:96px;z-index:99;background:#384E69;color:#fff;padding:12px 14px;border-radius:12px;font-weight:700;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.3)';
   document.body.appendChild(d);setTimeout(function(){d.remove();},5000);
 }
-async function setReminder(ref,title,body,when,wanted){
+async function setReminder(ref,title,body,when,uid){
   try{
-    await sb.from('reminders').delete().eq('ref',ref).eq('user_id',AUTH.uid);
+    await sb.from('reminders').delete().eq('ref',ref);
     if(!when){return;}
     if(when.getTime()<=Date.now()){toast('התזכורת לא נשמרה: הזמן שלה כבר עבר.');return;}
-    var r=await sb.from('reminders').insert({user_id:AUTH.uid,ref:ref,title:title,body:body||'',remind_at:when.toISOString()});
+    var r=await sb.from('reminders').insert({user_id:uid||AUTH.uid,ref:ref,title:title,body:body||'',remind_at:when.toISOString()});
     if(r.error){toast('התזכורת לא נשמרה: '+(r.error.message||'שגיאה'));return;}
     toast('תזכורת נקבעה ל-'+when.toLocaleDateString('he-IL',{day:'numeric',month:'numeric'})+' '+hm(when));
   }catch(e){toast('התזכורת לא נשמרה: '+(e&&e.message||'שגיאה'));}
@@ -151,10 +151,13 @@ function openBell(){
   try{localStorage.setItem('feder_bell_seen',String(Date.now()));}catch(e){}
   setTimeout(render,0);
 }
+function teamName(id){var m=byId('team_members',id);return m?m.name:'';}
+function myMember(){return S.team_members.filter(function(m){return m.user_id&&m.user_id===AUTH.uid;})[0]||null;}
+function assigneeOptions(sel){return '<option value="">ללא</option>'+S.team_members.map(function(m){return '<option value="'+esc(m.id)+'"'+(sel===m.id?' selected':'')+'>'+esc(m.name)+(m.title?' · '+esc(m.title):'')+'</option>';}).join('');}
 function allEvents(){return S.events.concat(G.events);}
 var BLANK='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
-var MAP={projectId:'project_id',clientName:'client_name',clientPhone:'client_phone',supplierId:'supplier_id'};
+var MAP={projectId:'project_id',clientName:'client_name',clientPhone:'client_phone',supplierId:'supplier_id',assigneeId:'assignee_id'};
 var RMAP={};Object.keys(MAP).forEach(function(k){RMAP[MAP[k]]=k;});
 function fromRow(r){var o={};Object.keys(r).forEach(function(k){o[RMAP[k]||k]=r[k];});o.createdAt=r.created_at?Date.parse(r.created_at):0;
   if(r.done_at){o.doneDate=ymd(new Date(r.done_at));}
@@ -205,7 +208,7 @@ var F={
   {k:'budget',l:'תקציב (₪)',t:'number'}]},
  task:{title:'משימה',col:'tasks',fields:[
   {k:'projectId',l:'פרויקט',t:'project',req:1},{k:'title',l:'מה צריך לעשות',t:'text',req:1},
-  {k:'due',l:'עד תאריך',t:'date'},{k:'remind',l:'תזכורת בטלפון (דרך יומן גוגל)',t:'select',o:['ללא','בבוקר של היום (8:00)','יום לפני (18:00)'],d:'ללא'},{k:'status',l:'סטטוס',t:'select',o:['לביצוע','בתהליך','הושלם'],d:'לביצוע'},
+  {k:'assigneeId',l:'אחראי (ימתין לביצוע אצל)',t:'assignee'},{k:'due',l:'עד תאריך',t:'date'},{k:'remind',l:'תזכורת בטלפון (דרך יומן גוגל)',t:'select',o:['ללא','בבוקר של היום (8:00)','יום לפני (18:00)'],d:'ללא'},{k:'status',l:'סטטוס',t:'select',o:['לביצוע','בתהליך','הושלם'],d:'לביצוע'},
   {k:'notes',l:'הערות',t:'textarea'}]},
  expense:{title:'הוצאה / קבלה',col:'expenses',fields:[
   {k:'photo',l:'תמונת הקבלה',t:'photo'},{k:'projectId',l:'פרויקט',t:'project',req:1},
@@ -282,6 +285,9 @@ function vHome(){
   var tdy=todayStr(),tmr=ymd(new Date(Date.now()+86400000));
   var late=openT.filter(function(t){return t.due&&t.due<tdy;}),dueT=openT.filter(function(t){return t.due===tdy;}),dueN=openT.filter(function(t){return t.due===tmr;});
   var delT=S.orders.filter(function(o){return o.status==='הוזמן';}).length;
+  var mm=myMember();
+  if(mm){var myOpen=openT.filter(function(t){return t.assigneeId===mm.id;}).length;
+    h+='<button class="card" style="margin-top:12px;width:100%;text-align:start;display:flex;justify-content:space-between;align-items:center;cursor:pointer" data-act="mytasks"><span><b>'+myOpen+'</b> משימות פתוחות בשבילך</span><span class="link">הצג</span></button>';}
   if(!pushOn()&&pushSupported())h+='<div class="card" style="margin-top:12px"><b>התראות לטלפון</b><div class="muted" style="margin:4px 0 8px">כדי לקבל תזכורות לפגישות ולמשימות גם כשהאפליקציה סגורה.</div><button class="btn btn-accent" data-act="pushon">הפעל התראות</button><div class="muted" id="pushst" style="margin-top:6px"></div></div>';
   if(late.length||dueT.length||dueN.length){
     h+='<div class="card" style="margin-top:12px;border-inline-start:5px solid var(--accent,#F7941D)"><b>תזכורות</b><div style="margin-top:6px;line-height:1.7">'+
@@ -298,7 +304,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 15</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 16</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -316,7 +322,7 @@ function taskRow(showProj,editable,t){
   var tick=editable?'<button class="tick '+cls+'" data-act="toggle" data-id="'+esc(t.id)+'" aria-label="'+(t.status==='הושלם'?'החזר לביצוע':'סמן כהושלם')+'">'+(t.status==='הושלם'?ico('check',20):'')+'</button>':'<span class="tick '+cls+'">'+(t.status==='הושלם'?ico('check',20):'')+'</span>';
   var main='<div class="t"'+(t.status==='הושלם'?' style="text-decoration:line-through;opacity:.7"':'')+'>'+esc(t.title)+'</div><div class="muted">'+(showProj?esc(pname(t.projectId))+(t.due?' · ':''):'')+due+'</div>';
   return '<div class="item">'+tick+(editable?'<button class="main" data-act="edit" data-e="task" data-id="'+esc(t.id)+'">'+main+'</button>':'<div class="main">'+main+'</div>')+
-   (t.status!=='לביצוע'&&t.status!=='הושלם'?chip(TASK_CHIP[t.status]||'neutral',t.status):'')+'</div>';
+   (t.assigneeId&&teamName(t.assigneeId)?chip('info',teamName(t.assigneeId)):'')+(t.status!=='לביצוע'&&t.status!=='הושלם'?chip(TASK_CHIP[t.status]||'neutral',t.status):'')+'</div>';
 }
 function sortTasks(a){return a.slice().sort(function(x,y){
   var dx=x.status==='הושלם',dy=y.status==='הושלם';if(dx!==dy)return dx?1:-1;
@@ -326,6 +332,7 @@ function projSelect(id,key){return '<div class="fld"><label for="'+id+'" class="
 function vTasks(){
   var list=S.tasks.filter(function(t){
     if(UI.taskProject&&t.projectId!==UI.taskProject)return false;
+    if(UI.taskPerson){var pid=UI.taskPerson==='me'?(myMember()||{}).id:UI.taskPerson;if(t.assigneeId!==pid)return false;}
     if(UI.taskFilter==='open')return t.status!=='הושלם';
     if(UI.taskFilter==='done')return t.status==='הושלם';
     return true;});
@@ -333,6 +340,7 @@ function vTasks(){
   h+='<main class="wrap" style="'+PULL+'">';
   h+='<div class="filters">'+[['open','פתוחות'],['all','הכול'],['done','הושלמו']].map(function(x){return '<button class="fchip" data-act="tfilter" data-v="'+x[0]+'" aria-pressed="'+(UI.taskFilter===x[0])+'">'+x[1]+'</button>';}).join('')+'</div>';
   h+=projSelect('tproj','taskProject');
+  h+='<div class="fld"><label for="tper" class="sr">אחראי</label><select id="tper" data-sel="taskPerson"><option value="">כל האנשים</option>'+(myMember()?'<option value="me"'+(UI.taskPerson==='me'?' selected':'')+'>המשימות שלי</option>':'')+S.team_members.map(function(m){return '<option value="'+esc(m.id)+'"'+(UI.taskPerson===m.id?' selected':'')+'>'+esc(m.name)+'</option>';}).join('')+'</select></div>';
   h+=list.length?'<div class="stack">'+sortTasks(list).map(taskRow.bind(null,true,true)).join('')+'</div>':emptyBox(UI.taskFilter==='done'?'עוד לא הושלמה אף משימה.':'אין משימות להצגה.',addBtn('task','משימה חדשה'));
   return h+'</main>';
 }
@@ -597,7 +605,13 @@ function vCalendar(){
 var ROLES=[['pending','ממתין לאישור'],['admin','מנהל'],['team','צוות'],['accountant','רואה חשבון'],['client','לקוח']];
 function vUsers(){
   var h=bandHtml('משתמשים והרשאות',null,{back:'חזרה'});
-  h+='<main class="wrap" style="'+PULL+'"><div class="card muted" style="margin-bottom:12px">מי שנרשם ממתין עד שתבחר לו תפקיד. צוות רואה ועורך הכול. רואה חשבון רואה הוצאות בלבד. לקוח רואה רק את הפרויקטים ששייכת לו.</div><div class="stack">';
+  h+='<main class="wrap" style="'+PULL+'">';
+  if(isAdmin()&&S.team_members.length){
+    var staffU=S.profiles.filter(function(u){return u.role==='admin'||u.role==='team';});
+    h+='<div class="card" style="margin-bottom:12px"><b>צוות העבודה</b><div class="muted" style="margin:4px 0 8px">חבר כל אחד מהצוות למשתמש שלו כדי שיקבל התראות על משימות שמשויכות אליו.</div>'+
+      S.team_members.map(function(m){return '<div class="fld" style="margin:8px 0 0"><label for="tm_'+esc(m.id)+'">'+esc(m.name)+(m.title?' · '+esc(m.title):'')+'</label><select id="tm_'+esc(m.id)+'" data-tm="'+esc(m.id)+'"><option value="">לא מחובר</option>'+staffU.map(function(u){return '<option value="'+esc(u.id)+'"'+(m.user_id===u.id?' selected':'')+'>'+esc(u.name||u.email||'')+'</option>';}).join('')+'</select></div>';}).join('')+'</div>';
+  }
+  h+='<div class="card muted" style="margin-bottom:12px">מי שנרשם ממתין עד שתבחר לו תפקיד. צוות רואה ועורך הכול. רואה חשבון רואה הוצאות בלבד. לקוח רואה רק את הפרויקטים ששייכת לו.</div><div class="stack">';
   S.profiles.slice().sort(function(a,b){return (a.role==='pending'?0:1)-(b.role==='pending'?0:1);}).forEach(function(u){
     var me=u.id===AUTH.uid;
     h+='<div class="card"><div class="name">'+esc(u.name||u.email||'')+(me?' (אני)':'')+'</div><div class="muted ltr">'+esc(u.email||'')+'</div>'+
@@ -717,6 +731,7 @@ function fieldHtml(f,val){
   var id='f_'+f.k,inp='';
   if(f.t==='textarea')inp='<textarea id="'+id+'">'+esc(val)+'</textarea>';
   else if(f.t==='project')inp='<select id="'+id+'">'+projOptions(val)+'</select>';
+  else if(f.t==='assignee')inp='<select id="'+id+'">'+assigneeOptions(val)+'</select>';
   else if(f.t==='supplier')inp='<select id="'+id+'">'+supOptions(val)+'</select>';
   else if(f.t==='select')inp='<select id="'+id+'">'+f.o.map(function(o){return '<option'+(val===o?' selected':'')+'>'+esc(o)+'</option>';}).join('')+'</select>';
   else if(f.t==='file'){
@@ -869,7 +884,15 @@ async function submitForm(ev){
         var dd=pd(data.due);if(!morning)dd=new Date(dd.getFullYear(),dd.getMonth(),dd.getDate()-1);
         tw=new Date(ymd(dd)+'T'+(morning?'08:00':'18:00'));
       }
-      await setReminder('task:'+taskId,'משימה: '+data.title,tw&&morning?'להיום':'למחר',tw);
+      var asg=data.assigneeId?byId('team_members',data.assigneeId):null;
+      await setReminder('task:'+taskId,'משימה: '+data.title,tw&&morning?'להיום':'למחר',tw,asg&&asg.user_id?asg.user_id:null);
+      if(asg&&(!exT||exT.assigneeId!==data.assigneeId)){
+        if(asg.user_id){
+          if(asg.user_id!==AUTH.uid){
+            try{await sb.from('reminders').insert({user_id:asg.user_id,ref:'assign:'+taskId+':'+Date.now(),title:'משימה חדשה בשבילך',body:data.title+(data.projectId?' · '+pname(data.projectId):''),remind_at:new Date().toISOString()});}catch(e3){}
+          }
+        }else{setTimeout(function(){toast(asg.name+' עוד לא מחובר/ת למשתמש, לא תישלח התראה.');},400);}
+      }
     }
     if(form.e==='event'&&!(form.id&&String(form.id).indexOf('g:')===0)){
       await setReminder('ev:'+(evId||''),evRaw.title,(evRaw.startTime?'בשעה '+evRaw.startTime:'כל היום'),remindWhen(evRaw.date,evRaw.startTime,evRaw.remind));
@@ -972,6 +995,7 @@ document.addEventListener('click',function(ev){
   else if(a==='gdisc'){gDisconnect();}
   else if(a==='logout'){sb.auth.signOut();}
   else if(a==='pushon'){pushEnable();}
+  else if(a==='mytasks'){UI.taskPerson='me';UI.taskFilter='open';UI.view='tasks';window.scrollTo(0,0);render();}
   else if(a==='bell'){openBell();}
   else if(a==='reload'){location.reload();}
   else if(a==='signup'){doSignup();}
@@ -986,6 +1010,8 @@ document.addEventListener('change',function(ev){
     var f=t.files&&t.files[0];if(!f)return;form.file=f;form.removed=false;
     var p=$('#phprev');if(p){var im=document.createElement('img');im.alt='';im.src=URL.createObjectURL(f);p.innerHTML='';p.appendChild(im);}
   }else if(t.getAttribute&&t.getAttribute('data-rp')){UI.repPhotos=t.checked;render();
+  }else if(t.getAttribute&&t.getAttribute('data-tm')){
+    sb.from('team_members').update({user_id:t.value||null}).eq('id',t.getAttribute('data-tm')).then(function(r){if(r.error)toast('לא ניתן לחבר: אותו משתמש כבר מחובר לאדם אחר?');loadTable('team_members');});
   }else if(t.getAttribute&&t.getAttribute('data-role')){
     sb.from('profiles').update({role:t.value}).eq('id',t.getAttribute('data-role')).then(function(){loadTable('profiles');});
   }else if(t.getAttribute&&t.getAttribute('data-cp')){
