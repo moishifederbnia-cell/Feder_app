@@ -1,0 +1,240 @@
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+// ===== Feder Bniya WhatsApp bot (v2): AI-driven, full app actions, roles (staff / worker), Arabic for workers =====
+const G = "https://graph.facebook.com/v21.0";
+const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+const TOKEN = Deno.env.get("WA_TOKEN")!;
+const PHONE_ID = Deno.env.get("WA_PHONE_ID")!;
+const ALLOWED = (Deno.env.get("ALLOWED_NUMBERS") || "").split(",").map((x) => x.replace(/\D/g, "")).filter(Boolean);
+const AI_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
+const AI_MODEL = Deno.env.get("AI_MODEL") || "claude-haiku-5-5";
+
+type Ctx = { from: string; role: "staff" | "worker"; lang: "he" | "ar"; member: any | null; name: string; team: any[] };
+const L = (c: Ctx, he: string, ar: string) => (c.lang === "ar" ? ar : he);
+
+// ---------- WhatsApp I/O ----------
+async function reply(to: string, text: string) {
+  await fetch(`${G}/${PHONE_ID}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ messaging_product: "whatsapp", to, type: "text", text: { body: text.slice(0, 3900) } }),
+  });
+}
+async function downloadMedia(mediaId: string): Promise<{ buf: Uint8Array; mime: string } | null> {
+  try {
+    const meta = await (await fetch(`${G}/${mediaId}`, { headers: { Authorization: `Bearer ${TOKEN}` } })).json();
+    const bin = await fetch(meta.url, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    return { buf: new Uint8Array(await bin.arrayBuffer()), mime: meta.mime_type || "image/jpeg" };
+  } catch { return null; }
+}
+async function uploadMedia(buf: Uint8Array, mime: string): Promise<string | null> {
+  try {
+    const ext = mime.startsWith("video/") ? (mime.includes("quicktime") ? "mov" : mime.includes("webm") ? "webm" : "mp4") : "jpg";
+    const path = `wa/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const up = await db.storage.from("photos").upload(path, buf, { contentType: mime });
+    return up.error ? null : path;
+  } catch { return null; }
+}
+function b64(buf: Uint8Array) {
+  let s = "";
+  for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+// ---------- dates ----------
+const STAGES = ["שלד", "אינסטלציה", "חשמל", "איטום", "טיח", "ריצוף", "גמר", "אחר"];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^\d{1,2}:\d{2}$/;
+function ymd(d: Date) {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+function il() { return new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Jerusalem" })); }
+function addDays(s: string, n: number) { const [y, m, d] = s.split("-").map(Number); return ymd(new Date(y, m - 1, d + n)); }
+function fmtD(s: string | null) { if (!s) return ""; const [, m, d] = s.split("-"); return `${d}/${m}`; }
+// Israel local date+time -> UTC ISO
+function ilToUtc(date: string, time: string): string {
+  const [y, mo, d] = date.split("-").map(Number);
+  const [h, mi] = time.split(":").map(Number);
+  const guess = Date.UTC(y, mo - 1, d, h, mi);
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Jerusalem", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(guess));
+  const g = (t: string) => Number(parts.find((p) => p.type === t)!.value);
+  const asIl = Date.UTC(g("year"), g("month") - 1, g("day"), g("hour"), g("minute"));
+  return new Date(guess - (asIl - guess)).toISOString();
+}
+
+// ---------- helpers ----------
+const norm = (s: any) => String(s || "").toLowerCase().trim();
+function matchProject(name: string, text: string, projects: any[]) {
+  const n = norm(name);
+  if (n) {
+    const exact = projects.find((p) => norm(p.name) === n);
+    if (exact) return exact;
+    const part = projects.find((p) => norm(p.name).includes(n) || n.includes(norm(p.name)));
+    if (part) return part;
+  }
+  const t = norm(text);
+  let best: any = null;
+  for (const p of projects) { const pn = norm(p.name); if (pn && t.includes(pn) && (!best || pn.length > norm(best.name).length)) best = p; }
+  if (best) return best;
+  return projects.length === 1 ? projects[0] : null;
+}
+function matchMember(name: string, team: any[]) {
+  const n = norm(name);
+  if (!n) return null;
+  return team.find((m) => norm(m.name) === n || norm(m.name_ar) === n) ||
+    team.find((m) => norm(m.name).includes(n) || n.includes(norm(m.name)) || (m.name_ar && (norm(m.name_ar).includes(n) || n.includes(norm(m.name_ar))))) || null;
+}
+const mName = (m: any, c: Ctx) => (m ? (c.lang === "ar" ? m.name_ar || m.name : m.name) : "");
+const tTitle = (t: any, c: Ctx) => (c.lang === "ar" ? t.title_ar || t.title : t.title);
+const num = (n: number) => Math.round(n).toLocaleString("he-IL");
+
+async function pushTo(userIds: string[], title: string, body: string) {
+  const ids = [...new Set(userIds.filter(Boolean))];
+  if (!ids.length) return;
+  try {
+    await db.from("reminders").insert(ids.map((u) => ({ user_id: u, ref: `bot:${Date.now()}:${u.slice(0, 6)}`, title, body, remind_at: new Date().toISOString() })));
+  } catch (_e) { /* ignore */ }
+}
+async function adminIds(): Promise<string[]> {
+  const { data } = await db.from("profiles").select("id").eq("role", "admin");
+  return (data || []).map((x: any) => x.id);
+}
+async function userIsWorker(uid: string) {
+  const { data } = await db.from("profiles").select("role").eq("id", uid).maybeSingle();
+  return data?.role === "worker";
+}
+
+// ---------- identity ----------
+async function identify(from: string): Promise<Ctx | null> {
+  const last9 = from.slice(-9);
+  const { data: team } = await db.from("team_members").select("id,name,name_ar,phone,user_id");
+  const T = team || [];
+  const member = T.find((m: any) => m.phone && String(m.phone).replace(/\D/g, "").slice(-9) === last9) || null;
+  const boss = ALLOWED.includes(from);
+  if (!boss && !member) return null;
+  let role: "staff" | "worker" = boss ? "staff" : "worker";
+  if (member?.user_id) {
+    const { data: pr } = await db.from("profiles").select("role").eq("id", member.user_id).maybeSingle();
+    role = pr && (pr.role === "admin" || pr.role === "team") ? "staff" : "worker";
+  }
+  return { from, role, lang: role === "worker" ? "ar" : "he", member, name: member ? member.name : "", team: T };
+}
+
+// ---------- AI ----------
+const STAFF_ACTIONS = [
+  "add_task", "list_tasks", "complete_task", "reopen_task", "edit_task", "delete_task",
+  "add_expense", "edit_expense", "delete_expense", "expense_summary", "project_summary",
+  "create_project", "set_project_status",
+  "find_supplier", "add_supplier", "link_supplier",
+  "add_order", "update_order", "list_orders",
+  "add_doc", "add_supplier_doc",
+  "add_event", "list_events", "chat",
+];
+const WORKER_ACTIONS = ["list_tasks", "complete_task", "reopen_task", "add_doc", "chat"];
+
+function actTool(actions: string[]) {
+  return {
+    name: "act",
+    description: "Decide what the sender wants and extract the details.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: actions },
+        project_name: { type: "string", description: "Project name exactly as in the list, or empty" },
+        tasks: {
+          type: "array", description: "For add_task: one entry per task",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "Task in Hebrew" },
+              title_ar: { type: "string", description: "The same task translated to clear Arabic" },
+              due: { type: "string", description: "YYYY-MM-DD or empty" },
+              assignee: { type: "string", description: "Team member name exactly as in the team list, or empty" },
+            },
+            required: ["title"],
+          },
+        },
+        title: { type: "string", description: "Words identifying an existing task (complete/reopen/edit/delete), or a doc/event title" },
+        new_title: { type: "string", description: "edit_task: new task text in Hebrew" },
+        new_title_ar: { type: "string", description: "edit_task: new task text in Arabic" },
+        due: { type: "string", description: "YYYY-MM-DD (edit_task new due / event date) or empty" },
+        assignee_name: { type: "string", description: "Team member (edit_task new assignee, or list_tasks filter)" },
+        mine: { type: "boolean", description: "list_tasks: the sender asks about their own tasks (שלי / لي)" },
+        scope: { type: "string", enum: ["today", "tomorrow", "week", "overdue", "open", "done"], description: "list_tasks/list_events scope" },
+        amount: { type: "number" }, new_amount: { type: "number" },
+        vendor: { type: "string", description: "Supplier/store name on an expense" },
+        new_vendor: { type: "string" },
+        pay: { type: "string", enum: ["מזומן", "אשראי", ""] },
+        date: { type: "string", description: "Date YYYY-MM-DD if stated/visible, else empty" },
+        note: { type: "string" },
+        stage: { type: "string", description: "Work stage: שלד, אינסטלציה, חשמל, איטום, טיח, ריצוף, גמר, אחר" },
+        last: { type: "boolean", description: "The user means the latest/last one" },
+        supplier_name: { type: "string" }, supplier_field: { type: "string" }, supplier_phone: { type: "string" },
+        kind: { type: "string", enum: ["תעודת משלוח", "תיעוד"], description: "add_supplier_doc kind" },
+        item: { type: "string", description: "Order item (add_order) or words identifying an order (update_order)" },
+        status: { type: "string", description: "Order status (לא הוזמן/הוזמן/הגיע) or project status (בהתחלה/בביצוע/סיום)" },
+        time: { type: "string", description: "Event start HH:MM (24h) or empty for all-day" },
+        end_time: { type: "string" }, location: { type: "string" },
+        remind_minutes: { type: "number", description: "Minutes before the event to remind; -1 for none; default 30" },
+        group_by: { type: "string", enum: ["vendor", "pay", "none"], description: "expense_summary grouping" },
+        period: { type: "string", enum: ["week", "month", "all"], description: "expense_summary period" },
+        address: { type: "string" }, client_name: { type: "string" },
+        reply: { type: "string", description: "For action=chat: short answer or a question asking for the missing detail" },
+      },
+      required: ["action"],
+    },
+  };
+}
+
+function systemPrompt(c: Ctx, projects: any[]) {
+  const d = il();
+  const wd = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"][d.getDay()];
+  const team = c.team.map((m) => m.name + (m.name_ar ? ` (${m.name_ar})` : "")).join(" | ");
+  const common = `היום: ${ymd(d)} (יום ${wd}), שעון ישראל. חשב תאריכים יחסיים ("מחר", "יום ראשון הבא", "בעוד שבוע") לפי היום.
+פרויקטים: ${projects.map((p) => p.name).join(" | ") || "(אין)"}.
+אנשי צוות: ${team || "(אין)"}.
+project_name חייב להיות אחד מהשמות ברשימה בדיוק, או ריק אם לא ברור. בחר פעולה אחת בלבד.`;
+  if (c.role === "worker") {
+    return `אתה עוזר בוואטסאפ של חברת בנייה (פדר בניה) שמדבר עם פועל שטח בשם ${c.name || "הפועל"}. הוא כותב בערבית או בעברית.
+הוא מורשה רק: לראות משימות (list_tasks), לסגור משימה (complete_task) או לפתוח מחדש (reopen_task), לשלוח תיעוד של עבודה בתמונה או וידאו (add_doc), או לשאול שאלה כללית (chat).
+אסור לו לראות או לשנות כסף, הוצאות, ספקים או תקציבים. אם ביקש משהו כזה, action=chat עם reply בערבית: "هذا غير متاح لك".
+"مهامي"/"שלי" => mine=true. בתיעוד: כתוב title ו-note בעברית (תרגם מערבית), stage אם ברור.
+כשאתה כותב reply בערבית, השתמש בערבית פשוטה וברורה.
+${common}`;
+  }
+  return `אתה עוזר של מנהל עבודה בחברת בנייה (פדר בניה). הוא כותב לך בעברית קצרה מהשטח, לפעמים עם תמונת קבלה או תיעוד.
+בחר את הפעולה והמלא פרטים:
+- add_task: משימה חדשה (אפשר כמה, ב-tasks). לכל משימה: title בעברית, title_ar תרגום לערבית, due אם צוין, assignee אם שייך לאדם מהצוות ("תן לאבו יאסר...", "אמיתי ידאג ל...").
+- list_tasks: מה יש/פתוח/באיחור/להיום. scope: today (להיום, כולל באיחור), tomorrow, week, overdue, open, done. assignee_name אם שאל על אדם. mine=true אם שאל "מה יש לי".
+- complete_task / reopen_task: סגירה או פתיחה מחדש של משימה קיימת. title = מילים מזהות.
+- edit_task: שינוי משימה קיימת. title מזהה; new_title/new_title_ar, due, assignee_name לחדשים.
+- delete_task: מחיקת משימה. title מזהה.
+- add_expense: הוצאה או קבלה. בתמונת קבלה קרא סכום כולל (₪), עסק, תאריך, אמצעי תשלום. טקסט המשתמש גובר על התמונה.
+- edit_expense / delete_expense: הוצאה קיימת. vendor ו/או amount מזהים, או last=true ל"האחרונה". לחדשים: new_amount, new_vendor, pay.
+- expense_summary: כמה הוצאנו. project_name אופציונלי, vendor אופציונלי, pay אופציונלי, period (week/month/all), group_by.
+- project_summary: מצב פרויקט (הוצאות ומשימות).
+- create_project: פרויקט חדש (project_name = שם חדש, address, client_name). set_project_status: status אחד מ: בהתחלה, בביצוע, סיום.
+- find_supplier: טלפון/פרטי ספק (supplier_name). add_supplier: ספק חדש. link_supplier: שיוך ספק לפרויקט.
+- add_order: הזמנת חומר (item, supplier_name אופציונלי, status). update_order: item מזהה + status חדש. list_orders: הזמנות פתוחות.
+- add_doc: תיעוד עבודה באתר (תמונה או וידאו שאינם קבלה). title קצר, stage אם ברור.
+- add_supplier_doc: תעודת משלוח או תיעוד שקשור לספק (supplier_name, kind).
+- add_event: פגישה/אירוע ביומן. title, due=התאריך (YYYY-MM-DD), time (HH:MM) אם יש, location, remind_minutes.
+- list_events: מה ביומן. scope today/tomorrow/week.
+- chat: כל דבר אחר או כשחסר פרט הכרחי. ב-reply משפט קצר בעברית ושאלה על מה שחסר.
+${common}`;
+}
+
+async function aiParse(c: Ctx, text: string, media: { buf: Uint8Array; mime: string } | null, isVideo: boolean, projects: any[]) {
+  const content: any[] = [];
+  if (media && !isVideo) content.push({ type: "image", source: { type: "base64", media_type: media.mime, data: b64(media.buf) } });
+  content.push({ type: "text", text: (text || "") + (isVideo ? "\n(נשלח וידאו)" : "") || "(תמונה בלי טקסט)" });
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": AI_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({
+      model: AI_MODEL, max_tokens: 900, system: systemPrompt(c, projects),
+      tools: [actTool(c.role === "worker" ? WORKER_ACTIONS : STAFF_ACTIONS)], tool_choice: { type: "tool", name: "act" },
+      messages: [{ role: "user", content }],
+    }),
+  });

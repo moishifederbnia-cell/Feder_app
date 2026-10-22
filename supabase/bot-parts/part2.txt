@@ -1,0 +1,214 @@
+  if (!res.ok) throw new Error("ai " + res.status);
+  const j = await res.json();
+  const tu = (j.content || []).find((x: any) => x.type === "tool_use");
+  if (!tu) throw new Error("no tool use");
+  return tu.input as any;
+}
+
+// ---------- pending confirmations ----------
+async function savePending(from: string, payload: any) {
+  await db.from("bot_pending").upsert({ phone: from, payload, created_at: new Date().toISOString() });
+}
+async function takePending(from: string): Promise<any | null> {
+  const { data } = await db.from("bot_pending").select("payload,created_at").eq("phone", from).maybeSingle();
+  if (!data) return null;
+  await db.from("bot_pending").delete().eq("phone", from);
+  if (Date.now() - Date.parse(data.created_at) > 10 * 60 * 1000) return null;
+  return data.payload;
+}
+const YES = /^(כן|אישור|אשר|בטח|סבבה|yes|ok|okay|نعم|اي|أيوه)\s*[.!]?$/i;
+const NO = /^(לא|בטל|ביטול|עזוב|no|cancel|لا)\s*[.!]?$/i;
+
+async function execPending(p: any, c: Ctx): Promise<string> {
+  if (p.kind === "delete_task") {
+    const { error } = await db.from("tasks").delete().eq("id", p.id);
+    return error ? "לא הצלחתי למחוק." : `נמחק ✓ ${p.label}`;
+  }
+  if (p.kind === "edit_task") {
+    const { error } = await db.from("tasks").update(p.patch).eq("id", p.id);
+    if (error) return "לא הצלחתי לעדכן.";
+    if (p.patch.assignee_id) await notifyAssignee(p.patch.assignee_id, p.title_for_push || p.label, p.title_ar_for_push || null, p.project_name, c);
+    return `עודכן ✓ ${p.label}`;
+  }
+  if (p.kind === "delete_expense") {
+    const { error } = await db.from("expenses").delete().eq("id", p.id);
+    return error ? "לא הצלחתי למחוק." : `נמחק ✓ ${p.label}`;
+  }
+  if (p.kind === "edit_expense") {
+    const { error } = await db.from("expenses").update(p.patch).eq("id", p.id);
+    return error ? "לא הצלחתי לעדכן." : `עודכן ✓ ${p.label}`;
+  }
+  return "אין מה לאשר.";
+}
+
+async function notifyAssignee(memberId: string, title: string, titleAr: string | null, projectName: string, c: Ctx) {
+  const m = c.team.find((x) => x.id === memberId);
+  if (!m || !m.user_id) return;
+  if (m.user_id && m.phone && String(m.phone).replace(/\D/g, "").slice(-9) === c.from.slice(-9)) return; // self
+  const worker = await userIsWorker(m.user_id);
+  await pushTo([m.user_id], worker ? "مهمة جديدة لك" : "משימה חדשה בשבילך", (worker && titleAr ? titleAr : title) + (projectName ? " · " + projectName : ""));
+}
+
+// ---------- task finder ----------
+async function findTasks(hint: string, proj: any | null, done: boolean) {
+  let q = db.from("tasks").select("id,title,title_ar,project_id,status,due,assignee_id");
+  q = done ? q.eq("status", "הושלם") : q.neq("status", "הושלם");
+  if (proj) q = q.eq("project_id", proj.id);
+  const { data } = await q.limit(300);
+  const k = norm(hint);
+  if (!k) return [];
+  return (data || []).filter((t: any) => norm(t.title).includes(k) || k.includes(norm(t.title)) || (t.title_ar && (norm(t.title_ar).includes(k) || k.includes(norm(t.title_ar)))));
+}
+
+// ---------- main action handler ----------
+async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: string } | null, isVideo: boolean, mediaPath: string | null): Promise<string> {
+  const { data: pr } = await db.from("projects").select("id,name,status");
+  const P = pr || [];
+  const a = await aiParse(c, text, media, isVideo, P);
+  if (c.role === "worker" && !WORKER_ACTIONS.includes(a.action)) return "هذا غير متاح لك";
+  const proj = matchProject(a.project_name, text, P);
+  const pNames: Record<string, string> = {}; P.forEach((p: any) => (pNames[p.id] = p.name));
+  const needProj = L(c, "לאיזה פרויקט? כתוב את שם הפרויקט (" + P.map((p: any) => p.name).join(", ") + ").", "لأي مشروع؟ (" + P.map((p: any) => p.name).join("، ") + ")");
+  const bossIds = async () => adminIds();
+
+  switch (a.action) {
+    // ----- tasks -----
+    case "add_task": {
+      if (!proj) return needProj;
+      const items: any[] = Array.isArray(a.tasks) && a.tasks.length ? a.tasks : (a.title ? [{ title: a.title, due: a.due, assignee: a.assignee_name }] : []);
+      if (!items.length) return "מה המשימה?";
+      const out: string[] = [];
+      for (const it of items) {
+        const title = String(it.title || "").trim(); if (!title) continue;
+        const due = DATE_RE.test(it.due || "") ? it.due : null;
+        const mem = it.assignee ? matchMember(it.assignee, c.team) : null;
+        const row: any = { project_id: proj.id, title, title_ar: it.title_ar || null, due, status: "לביצוע", assignee_id: mem ? mem.id : null };
+        const { error } = await db.from("tasks").insert(row);
+        if (error) { out.push("✗ " + title); continue; }
+        out.push(`• ${title}${mem ? " ← " + mem.name : ""}${due ? " (עד " + fmtD(due) + ")" : ""}`);
+        if (mem) await notifyAssignee(mem.id, title, it.title_ar || null, proj.name, c);
+      }
+      return `נשמר ✓ ב"${proj.name}":\n` + out.join("\n");
+    }
+    case "list_tasks": {
+      const today = ymd(il());
+      const scope: string = a.scope || "open";
+      let q = db.from("tasks").select("title,title_ar,due,status,project_id,assignee_id,done_at");
+      if (scope === "done") q = q.eq("status", "הושלם").order("done_at", { ascending: false, nullsFirst: false });
+      else {
+        q = q.neq("status", "הושלם").order("due", { ascending: true, nullsFirst: false });
+        if (scope === "today") q = q.lte("due", today);
+        else if (scope === "tomorrow") q = q.eq("due", addDays(today, 1));
+        else if (scope === "week") q = q.lte("due", addDays(today, 7));
+        else if (scope === "overdue") q = q.lt("due", today);
+      }
+      if (proj && a.project_name) q = q.eq("project_id", proj.id);
+      let who: any = null;
+      if (a.mine && c.member) who = c.member;
+      else if (a.assignee_name) who = matchMember(a.assignee_name, c.team);
+      if (who) q = q.eq("assignee_id", who.id);
+      const { data } = await q.limit(25);
+      if (!data?.length) return L(c, "אין משימות" + (scope === "done" ? " שהושלמו" : "") + " כאלה 👍", "لا توجد مهام 👍");
+      const SC: Record<string, string> = { today: "להיום ובאיחור", tomorrow: "למחר", week: "לשבוע הקרוב", overdue: "באיחור", open: "פתוחות", done: "שהושלמו" };
+      const head = L(c, "משימות " + (SC[scope] || "") + (who ? " – " + who.name : "") + ":", "المهام" + (who ? " – " + mName(who, c) : "") + ":");
+      const mById: Record<string, any> = {}; c.team.forEach((m) => (mById[m.id] = m));
+      return head + "\n" + data.map((t: any) => {
+        const late = t.due && t.due < today && t.status !== "הושלם";
+        return `• ${tTitle(t, c)}${!(proj && a.project_name) ? " (" + (pNames[t.project_id] || "") + ")" : ""}${!who && t.assignee_id && mById[t.assignee_id] ? " · " + mName(mById[t.assignee_id], c) : ""}${t.due ? " · " + (late ? "⚠️ " : "") + L(c, "עד ", "حتى ") + fmtD(t.due) : ""}`;
+      }).join("\n");
+    }
+    case "complete_task":
+    case "reopen_task": {
+      const reopen = a.action === "reopen_task";
+      const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, reopen);
+      if (!hits.length) return L(c, "לא מצאתי משימה כזאת.", "لم أجد هذه المهمة.");
+      if (hits.length > 1) return L(c, "מצאתי כמה משימות:\n", "وجدت عدة مهام:\n") + hits.slice(0, 6).map((t: any) => "• " + tTitle(t, c)).join("\n") + L(c, "\nכתוב את השם המדויק של אחת מהן.", "\nاكتب الاسم الدقيق لإحداها.");
+      const t = hits[0];
+      const { error } = await db.from("tasks").update(reopen ? { status: "לביצוע", done_at: null } : { status: "הושלם", done_at: new Date().toISOString() }).eq("id", t.id);
+      if (error) return L(c, "לא הצלחתי לעדכן.", "تعذّر التحديث.");
+      if (c.role === "worker" && !reopen) await pushTo(await bossIds(), `${c.name || "פועל"} סגר משימה`, `${t.title} · ${pNames[t.project_id] || ""}`);
+      return reopen ? L(c, `נפתחה מחדש ✓ "${t.title}"`, `أُعيد فتحها ✓ "${tTitle(t, c)}"`) : L(c, `נשמר ✓ "${t.title}" סומנה כבוצעה.`, `تم ✓ "${tTitle(t, c)}"`);
+    }
+    case "edit_task": {
+      const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, false);
+      if (!hits.length) return "לא מצאתי משימה פתוחה כזאת.";
+      if (hits.length > 1) return "מצאתי כמה משימות:\n" + hits.slice(0, 6).map((t: any) => "• " + t.title).join("\n") + "\nכתוב את השם המדויק.";
+      const t = hits[0]; const patch: any = {}; const parts: string[] = [];
+      if (a.new_title) { patch.title = a.new_title; patch.title_ar = a.new_title_ar || null; parts.push(`טקסט: ${a.new_title}`); }
+      if (DATE_RE.test(a.due || "")) { patch.due = a.due; parts.push(`תאריך: ${fmtD(a.due)}`); }
+      let mem: any = null;
+      if (a.assignee_name) { mem = matchMember(a.assignee_name, c.team); if (mem) { patch.assignee_id = mem.id; parts.push(`אחראי: ${mem.name}`); } }
+      if (!parts.length) return "מה לשנות במשימה? (טקסט, תאריך או אחראי)";
+      const label = `"${t.title}" → ${parts.join(", ")}`;
+      await savePending(c.from, { kind: "edit_task", id: t.id, patch, label, title_for_push: a.new_title || t.title, title_ar_for_push: a.new_title_ar || t.title_ar || null, project_name: pNames[t.project_id] });
+      return `לשנות ${label}?\nכתוב "כן" לאישור.`;
+    }
+    case "delete_task": {
+      const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, false);
+      if (!hits.length) return "לא מצאתי משימה פתוחה כזאת.";
+      if (hits.length > 1) return "מצאתי כמה משימות:\n" + hits.slice(0, 6).map((t: any) => "• " + t.title).join("\n") + "\nכתוב את השם המדויק.";
+      await savePending(c.from, { kind: "delete_task", id: hits[0].id, label: `המשימה "${hits[0].title}"` });
+      return `למחוק את המשימה "${hits[0].title}"?\nכתוב "כן" לאישור.`;
+    }
+    // ----- expenses -----
+    case "add_expense": {
+      if (!proj) return needProj;
+      const amount = Number(a.amount);
+      if (!isFinite(amount) || amount <= 0) return "לא הצלחתי לקרוא סכום. כתוב אותו בהודעה, למשל: 350 חשמל בנימין " + proj.name;
+      const pay = a.pay === "מזומן" || a.pay === "אשראי" ? a.pay : null;
+      const vendor = String(a.vendor || "").trim() || "ללא ספק";
+      const date = DATE_RE.test(a.date || "") ? a.date : ymd(il());
+      const { error } = await db.from("expenses").insert({ project_id: proj.id, vendor, amount, pay, photo: mediaPath, date, note: a.note || null });
+      if (error) return "לא הצלחתי לשמור את ההוצאה.";
+      return `נשמר ✓ הוצאה ב"${proj.name}": ${vendor} ${num(amount)} ₪${pay ? " · " + pay : ""}${mediaPath ? " · עם קבלה" : ""}`;
+    }
+    case "edit_expense":
+    case "delete_expense": {
+      let q = db.from("expenses").select("id,vendor,amount,date,project_id,pay").order("created_at", { ascending: false });
+      if (proj && a.project_name) q = q.eq("project_id", proj.id);
+      const { data } = await q.limit(60);
+      let hits = (data || []).filter((x: any) =>
+        (!a.vendor || norm(x.vendor).includes(norm(a.vendor)) || norm(a.vendor).includes(norm(x.vendor))) &&
+        (!a.amount || Number(x.amount) === Number(a.amount)));
+      if (a.last) hits = hits.slice(0, 1);
+      if (!hits.length) return "לא מצאתי הוצאה כזאת.";
+      if (hits.length > 1) return "מצאתי כמה הוצאות:\n" + hits.slice(0, 6).map((x: any) => `• ${x.vendor} ${num(x.amount)} ₪ · ${fmtD(x.date)} (${pNames[x.project_id] || ""})`).join("\n") + "\nכתוב סכום או ספק מדויק, או 'האחרונה'.";
+      const x = hits[0]; const lbl = `${x.vendor} ${num(x.amount)} ₪ (${pNames[x.project_id] || ""})`;
+      if (a.action === "delete_expense") {
+        await savePending(c.from, { kind: "delete_expense", id: x.id, label: `ההוצאה ${lbl}` });
+        return `למחוק את ההוצאה ${lbl}?\nכתוב "כן" לאישור.`;
+      }
+      const patch: any = {}; const parts: string[] = [];
+      if (a.new_amount) { patch.amount = Number(a.new_amount); parts.push(`סכום ${num(a.new_amount)} ₪`); }
+      if (a.new_vendor) { patch.vendor = a.new_vendor; parts.push(`ספק ${a.new_vendor}`); }
+      if (a.pay === "מזומן" || a.pay === "אשראי") { patch.pay = a.pay; parts.push(a.pay); }
+      if (!parts.length) return "מה לשנות בהוצאה? (סכום, ספק או אמצעי תשלום)";
+      await savePending(c.from, { kind: "edit_expense", id: x.id, patch, label: `ההוצאה ${lbl} → ${parts.join(", ")}` });
+      return `לעדכן את ההוצאה ${lbl} ל: ${parts.join(", ")}?\nכתוב "כן" לאישור.`;
+    }
+    case "expense_summary": {
+      let q = db.from("expenses").select("amount,pay,vendor,date,project_id");
+      if (proj && a.project_name) q = q.eq("project_id", proj.id);
+      const today = ymd(il());
+      if (a.period === "month") q = q.gte("date", today.slice(0, 8) + "01");
+      else if (a.period === "week") q = q.gte("date", addDays(today, -7));
+      const { data } = await q.limit(2000);
+      let rows = data || [];
+      if (a.vendor) rows = rows.filter((x: any) => norm(x.vendor).includes(norm(a.vendor)));
+      if (a.pay === "מזומן" || a.pay === "אשראי") rows = rows.filter((x: any) => x.pay === a.pay);
+      const total = rows.reduce((s: number, x: any) => s + (Number(x.amount) || 0), 0);
+      const by = (f: (x: any) => string) => { const m: Record<string, number> = {}; rows.forEach((x: any) => { const k = f(x) || "ללא"; m[k] = (m[k] || 0) + (Number(x.amount) || 0); }); return Object.entries(m).sort((p, q) => q[1] - p[1]).slice(0, 8).map(([k, v]) => `• ${k}: ${num(v)} ₪`).join("\n"); };
+      const per = a.period === "week" ? " בשבוע האחרון" : a.period === "month" ? " החודש" : "";
+      let out = `הוצאות${proj && a.project_name ? " ב\"" + proj.name + "\"" : ""}${a.vendor ? " ל" + a.vendor : ""}${per}: ${num(total)} ₪ (${rows.length} הוצאות)`;
+      const cash = rows.filter((x: any) => x.pay === "מזומן").reduce((s: number, x: any) => s + Number(x.amount || 0), 0);
+      const card = rows.filter((x: any) => x.pay === "אשראי").reduce((s: number, x: any) => s + Number(x.amount || 0), 0);
+      out += `\nמזומן ${num(cash)} ₪ · אשראי ${num(card)} ₪`;
+      if (a.group_by === "vendor" || (!a.vendor && rows.length > 1 && a.group_by !== "none")) out += "\n\nלפי ספק:\n" + by((x) => x.vendor);
+      if (!(proj && a.project_name) && a.group_by !== "none") out += "\n\nלפי פרויקט:\n" + by((x) => pNames[x.project_id]);
+      return out;
+    }
+    case "project_summary": {
+      if (!proj) return needProj;
+      const { data: ex } = await db.from("expenses").select("amount,pay").eq("project_id", proj.id);
+      const { data: tk } = await db.from("tasks").select("status").eq("project_id", proj.id);
+      const { data: od } = await db.from("orders").select("status").eq("project_id", proj.id);

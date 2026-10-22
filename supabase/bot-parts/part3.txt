@@ -1,0 +1,248 @@
+      const total = (ex || []).reduce((s: number, x: any) => s + (Number(x.amount) || 0), 0);
+      const sumBy = (p: string) => (ex || []).filter((x: any) => x.pay === p).reduce((s: number, x: any) => s + (Number(x.amount) || 0), 0);
+      const done = (tk || []).filter((t: any) => t.status === "הושלם").length;
+      const openO = (od || []).filter((o: any) => o.status !== "הגיע").length;
+      return `${proj.name} (${proj.status || ""}):\nהוצאות: ${num(total)} ₪ (מזומן ${num(sumBy("מזומן"))}, אשראי ${num(sumBy("אשראי"))})\nמשימות: ${(tk || []).length - done} פתוחות, ${done} הושלמו\nהזמנות פתוחות: ${openO}`;
+    }
+    // ----- projects -----
+    case "create_project": {
+      const name = String(a.project_name || a.title || "").trim();
+      if (!name) return "מה שם הפרויקט החדש?";
+      if (P.some((p: any) => norm(p.name) === norm(name))) return `פרויקט "${name}" כבר קיים.`;
+      const { error } = await db.from("projects").insert({ name, address: a.address || null, client_name: a.client_name || null, status: "בהתחלה" });
+      return error ? "לא הצלחתי ליצור את הפרויקט." : `נשמר ✓ פרויקט חדש: ${name}`;
+    }
+    case "set_project_status": {
+      if (!proj) return needProj;
+      if (!["בהתחלה", "בביצוע", "סיום"].includes(a.status)) return "איזה סטטוס? בהתחלה / בביצוע / סיום";
+      const { error } = await db.from("projects").update({ status: a.status }).eq("id", proj.id);
+      return error ? "לא הצלחתי לעדכן." : `נשמר ✓ ${proj.name}: ${a.status}`;
+    }
+    // ----- suppliers -----
+    case "find_supplier": {
+      const { data } = await db.from("suppliers").select("id,name,field,phone,contacts");
+      const k = norm(a.supplier_name || a.vendor || a.title);
+      const hits = (data || []).filter((s: any) => k && (norm(s.name).includes(k) || k.includes(norm(s.name)) || norm(s.field).includes(k))).slice(0, 5);
+      if (!hits.length) return "לא מצאתי ספק כזה.";
+      return hits.map((s: any) => `${s.name}${s.field ? " (" + s.field + ")" : ""}\n${s.phone || "אין טלפון"}` + ((s.contacts || []).length ? "\n" + s.contacts.map((x: any) => `${x.name || ""}${x.role ? " " + x.role : ""}: ${x.phone || ""}`).join("\n") : "")).join("\n\n");
+    }
+    case "add_supplier": {
+      const name = String(a.supplier_name || "").trim();
+      if (!name) return "מה שם הספק?";
+      const { error } = await db.from("suppliers").insert({ name, field: a.supplier_field || null, phone: a.supplier_phone || null });
+      return error ? "לא הצלחתי לשמור את הספק." : `נשמר ✓ ספק חדש: ${name}${a.supplier_phone ? " · " + a.supplier_phone : ""}`;
+    }
+    case "link_supplier": {
+      if (!proj) return needProj;
+      const s = await supplierByName(a.supplier_name);
+      if (!s) return "לא מצאתי את הספק. אפשר להוסיף אותו קודם.";
+      const { error } = await db.from("project_suppliers").upsert({ project_id: proj.id, supplier_id: s.id }, { onConflict: "project_id,supplier_id" });
+      return error ? "לא הצלחתי לשייך." : `נשמר ✓ ${s.name} שויך ל"${proj.name}".`;
+    }
+    // ----- orders -----
+    case "add_order": {
+      if (!proj) return needProj;
+      const item = String(a.item || a.title || "").trim();
+      if (!item) return "מה להזמין?";
+      const s = a.supplier_name ? await supplierByName(a.supplier_name) : null;
+      const status = ["לא הוזמן", "הוזמן", "הגיע"].includes(a.status) ? a.status : "לא הוזמן";
+      const { error } = await db.from("orders").insert({ project_id: proj.id, supplier_id: s ? s.id : null, item, status });
+      if (error) return "לא הצלחתי לשמור את ההזמנה.";
+      if (s) await db.from("project_suppliers").upsert({ project_id: proj.id, supplier_id: s.id }, { onConflict: "project_id,supplier_id" });
+      return `נשמר ✓ הזמנה ב"${proj.name}": ${item}${s ? " · " + s.name : ""} · ${status}`;
+    }
+    case "update_order": {
+      if (!["לא הוזמן", "הוזמן", "הגיע"].includes(a.status)) return "איזה מצב? לא הוזמן / הוזמן / הגיע";
+      let q = db.from("orders").select("id,item,project_id,status");
+      if (proj && a.project_name) q = q.eq("project_id", proj.id);
+      const { data } = await q.limit(200);
+      const k = norm(a.item || a.title);
+      const hits = (data || []).filter((o: any) => k && (norm(o.item).includes(k) || k.includes(norm(o.item))));
+      if (!hits.length) return "לא מצאתי הזמנה כזאת.";
+      if (hits.length > 1) return "מצאתי כמה הזמנות:\n" + hits.slice(0, 6).map((o: any) => `• ${o.item} (${pNames[o.project_id] || ""}) · ${o.status}`).join("\n") + "\nכתוב את השם המדויק.";
+      const { error } = await db.from("orders").update({ status: a.status }).eq("id", hits[0].id);
+      return error ? "לא הצלחתי לעדכן." : `נשמר ✓ ${hits[0].item}: ${a.status}`;
+    }
+    case "list_orders": {
+      let q = db.from("orders").select("item,status,project_id,supplier_id").neq("status", "הגיע");
+      if (proj && a.project_name) q = q.eq("project_id", proj.id);
+      const { data } = await q.limit(30);
+      if (!data?.length) return "אין הזמנות פתוחות.";
+      return "הזמנות פתוחות:\n" + data.map((o: any) => `• ${o.item} (${pNames[o.project_id] || ""}) · ${o.status}`).join("\n");
+    }
+    // ----- documentation -----
+    case "add_doc": {
+      if (!proj) return needProj;
+      if (!mediaPath) return L(c, "שלח תמונה או וידאו עם הכיתוב.", "أرسل صورة أو فيديو مع وصف.");
+      const title = String(a.title || "").trim() || "תיעוד";
+      const stage = STAGES.includes(a.stage) ? a.stage : null;
+      const { error } = await db.from("docs").insert({ project_id: proj.id, title, stage, note: a.note || null, photo: mediaPath, date: ymd(il()) });
+      if (error) return L(c, "לא הצלחתי לשמור את התיעוד.", "تعذّر حفظ التوثيق.");
+      if (c.role === "worker") await pushTo(await bossIds(), `${c.name || "פועל"} שלח תיעוד`, `${title} · ${proj.name}`);
+      return L(c, `נשמר ✓ תיעוד ב"${proj.name}": ${title}${stage ? " · " + stage : ""}${isVideo ? " · וידאו" : ""}`, `تم الحفظ ✓ ${proj.name}: ${title}`);
+    }
+    case "add_supplier_doc": {
+      if (!proj) return needProj;
+      if (!mediaPath) return "שלח תמונה או וידאו של התעודה.";
+      const s = await supplierByName(a.supplier_name);
+      if (!s) return "לא זיהיתי את הספק. כתוב את שמו בכיתוב.";
+      const kind = a.kind === "תיעוד" ? "תיעוד" : "תעודת משלוח";
+      const { error } = await db.from("supplier_docs").insert({ project_id: proj.id, supplier_id: s.id, kind, title: a.title || null, note: a.note || null, photo: mediaPath, date: ymd(il()) });
+      if (error) return "לא הצלחתי לשמור.";
+      await db.from("project_suppliers").upsert({ project_id: proj.id, supplier_id: s.id }, { onConflict: "project_id,supplier_id" });
+      return `נשמר ✓ ${kind} של ${s.name} ב"${proj.name}"`;
+    }
+    // ----- calendar -----
+    case "add_event": {
+      const title = String(a.title || "").trim();
+      if (!title) return "מה האירוע?";
+      if (!DATE_RE.test(a.due || a.date || "")) return "באיזה תאריך?";
+      const date = DATE_RE.test(a.due || "") ? a.due : a.date;
+      const hasTime = TIME_RE.test(a.time || "");
+      const time = hasTime ? a.time.padStart(5, "0") : "";
+      const startIso = hasTime ? ilToUtc(date, time) : ilToUtc(date, "00:00");
+      let endIso: string | null = null;
+      if (hasTime) endIso = TIME_RE.test(a.end_time || "") ? ilToUtc(date, a.end_time.padStart(5, "0")) : new Date(Date.parse(startIso) + 3600000).toISOString();
+      const id = crypto.randomUUID();
+      const { error } = await db.from("events").insert({ id, title, start_at: startIso, end_at: endIso, all_day: !hasTime, project_id: proj && a.project_name ? proj.id : null, location: a.location || null, notes: a.note || null });
+      if (error) return "לא הצלחתי לשמור את האירוע.";
+      let remNote = "";
+      const rm = a.remind_minutes === undefined || a.remind_minutes === null ? 30 : Number(a.remind_minutes);
+      if (rm >= 0) {
+        const base = hasTime ? Date.parse(startIso) : Date.parse(ilToUtc(date, "08:00"));
+        const when = new Date(base - (hasTime ? rm : 0) * 60000);
+        if (when.getTime() > Date.now()) {
+          const ids = await bossIds();
+          if (ids.length) {
+            await db.from("reminders").insert(ids.map((u: string) => ({ user_id: u, ref: "ev:" + id + ":" + u.slice(0, 6), title, body: (hasTime ? "בשעה " + time : "כל היום") + (a.location ? " · " + a.location : ""), remind_at: when.toISOString() })));
+            remNote = hasTime ? ` · תזכורת ${rm ? rm + " דק' לפני" : "בזמן האירוע"}` : " · תזכורת בבוקר";
+          }
+        }
+      }
+      return `נשמר ✓ ביומן: ${title} · ${fmtD(date)}${hasTime ? " " + time : " (כל היום)"}${a.location ? " · " + a.location : ""}${remNote}\n(יעבור ליומן גוגל כשתפתח את האפליקציה)`;
+    }
+    case "list_events": {
+      const today = ymd(il());
+      const scope = a.scope || "today";
+      const from = scope === "tomorrow" ? addDays(today, 1) : today;
+      const to = scope === "today" ? today : scope === "tomorrow" ? addDays(today, 1) : addDays(today, 7);
+      const { data } = await db.from("events").select("title,start_at,all_day,location").gte("start_at", ilToUtc(from, "00:00")).lt("start_at", ilToUtc(addDays(to, 1), "00:00")).order("start_at", { ascending: true }).limit(25);
+      if (!data?.length) return "אין אירועים ביומן בתקופה הזאת.\n(מוצגים רק אירועים שנשמרו באפליקציה/בבוט, לא כל יומן גוגל.)";
+      return "ביומן:\n" + data.map((e: any) => {
+        const dt = new Date(new Date(e.start_at).toLocaleString("en-US", { timeZone: "Asia/Jerusalem" }));
+        return `• ${fmtD(ymd(dt))}${e.all_day ? "" : " " + String(dt.getHours()).padStart(2, "0") + ":" + String(dt.getMinutes()).padStart(2, "0")} ${e.title}${e.location ? " · " + e.location : ""}`;
+      }).join("\n");
+    }
+    default:
+      return a.reply || helpText(c);
+  }
+}
+
+async function supplierByName(name: string) {
+  const k = norm(name);
+  if (!k) return null;
+  const { data } = await db.from("suppliers").select("id,name");
+  const L2 = data || [];
+  return L2.find((s: any) => norm(s.name) === k) || L2.find((s: any) => norm(s.name).includes(k) || k.includes(norm(s.name))) || null;
+}
+
+function helpText(c: Ctx) {
+  if (c.role === "worker") return "أنا مساعد فيدر للبناء. يمكنك:\n• \"مهامي\" لعرض مهامك\n• \"أنهيت مهمة الخرسانة\"\n• إرسال صورة أو فيديو مع اسم المشروع كتوثيق";
+  return `אני הבוט של פדר בניה. אפשר לכתוב חופשי, למשל:
+• משימה בנוף: להזמין בטון מחר, ואבו יאסר יפנה את הפסולת
+• איזה משימות יש לי היום / מה באיחור / מה פתוח אצל אמיתי
+• סגור את משימת הבטון / מחק משימה / תשייך את הבטון לאבי
+• 350 חשמל בנימין הנוף אשראי (או שלח תמונת קבלה)
+• כמה הוצאנו בנוף החודש / הוצאות לבנימין
+• תיעוד: תמונה או וידאו עם "הנוף חשמל"
+• תעודת משלוח: תמונה עם "תעודת משלוח בנימין הנוף"
+• הזמנה בנוף: ברזל / הברזל הגיע
+• טלפון של בנימין / ספק חדש...
+• פגישה מחר ב-10 בנוף עם הלקוח / מה ביומן
+מחיקה ועריכה תמיד מחכות לאישור "כן".`;
+}
+
+// ---------- rule fallback (no AI key / AI failed) ----------
+async function handleRules(c: Ctx, text: string, mediaPath: string | null): Promise<string> {
+  if (c.role === "worker") return "المساعد غير متاح الآن، حاول لاحقاً.";
+  const { data: pr } = await db.from("projects").select("id,name");
+  const P = pr || [];
+  const proj = matchProject("", text, P);
+  const lead = text.trim().split(/\s+/)[0];
+  if (lead === "משימה" && proj) {
+    const title = text.replace(/^\s*משימה/, "").replace(new RegExp(proj.name, "i"), "").replace(/[:：]/g, " ").replace(/\s+/g, " ").trim();
+    if (!title) return "חסר תיאור למשימה.";
+    const { error } = await db.from("tasks").insert({ project_id: proj.id, title, status: "לביצוע" });
+    return error ? "לא הצלחתי לשמור." : `נשמר ✓ משימה ב"${proj.name}": ${title}`;
+  }
+  return helpText(c) + "\n(הבינה המלאכותית לא זמינה כרגע, נסה שוב.)";
+}
+
+// ---------- routing ----------
+async function route(c: Ctx, text: string, media: { id: string; video: boolean } | null): Promise<string> {
+  const t = text.trim();
+  // confirmations
+  if (c.role === "staff") {
+    if (YES.test(t) || NO.test(t)) {
+      const p = await takePending(c.from);
+      if (p) return YES.test(t) ? await execPending(p, c) : "בוטל.";
+      if (YES.test(t)) return "אין פעולה שממתינה לאישור.";
+    } else {
+      try { await db.from("bot_pending").delete().eq("phone", c.from); } catch (_e) { /* ignore */ }
+    }
+  }
+  let m: { buf: Uint8Array; mime: string } | null = null;
+  let path: string | null = null;
+  if (media) {
+    m = await downloadMedia(media.id);
+    if (m) path = await uploadMedia(m.buf, m.mime);
+    if (!path) return L(c, "לא הצלחתי לקבל את הקובץ. נסה שוב.", "تعذّر استلام الملف، حاول مرة أخرى.");
+  }
+  if (AI_KEY) {
+    try { return await handleAI(c, t, m, !!media?.video, path); } catch (_e) { /* fall back */ }
+  }
+  return await handleRules(c, t, path);
+}
+
+// ---------- webhook ----------
+async function processMessages(msgs: any[]) {
+  for (const m of msgs) {
+    const from = String(m.from || "").replace(/\D/g, "");
+    try {
+      // de-duplicate Meta retries
+      const seen = await db.from("bot_seen").insert({ id: m.id });
+      if (seen.error && (seen.error as any).code === "23505") continue;
+      const c = await identify(from);
+      if (!c) continue;
+      let out = helpText(c);
+      if (m.type === "text") out = await route(c, m.text?.body || "", null);
+      else if (m.type === "image") out = await route(c, m.image?.caption || "", { id: m.image.id, video: false });
+      else if (m.type === "video") out = await route(c, m.video?.caption || "", { id: m.video.id, video: true });
+      else out = L(c, "אני מבין טקסט, תמונות ווידאו בלבד.", "أفهم النصوص والصور والفيديو فقط.");
+      await reply(from, out);
+    } catch (_e) {
+      try { await reply(from, "משהו השתבש, נסה שוב."); } catch (_e2) { /* ignore */ }
+    }
+  }
+}
+
+Deno.serve(async (req) => {
+  const url = new URL(req.url);
+  if (req.method === "GET") {
+    if (url.searchParams.get("hub.mode") === "subscribe" && url.searchParams.get("hub.verify_token") === Deno.env.get("WA_VERIFY_TOKEN")) {
+      return new Response(url.searchParams.get("hub.challenge") || "");
+    }
+    return new Response("forbidden", { status: 403 });
+  }
+  try {
+    const body = await req.json();
+    const msgs = body?.entry?.[0]?.changes?.[0]?.value?.messages || [];
+    if (msgs.length) {
+      const job = processMessages(msgs);
+      // @ts-ignore EdgeRuntime exists on Supabase
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) EdgeRuntime.waitUntil(job);
+      else await job;
+    }
+  } catch (_e) { /* always 200 to Meta */ }
+  return new Response("ok");
+});
