@@ -318,7 +318,7 @@ function projectCard(p){
    '<div class="bar" role="img" aria-label="התקדמות '+pct+' אחוז"><i style="width:'+pct+'%"></i></div>'+
    '<div class="meta"><span>'+open+' משימות פתוחות</span><span>'+money(spent)+'</span></div></button>';
 }
-function sortedProjects(){return S.projects.slice().sort(function(a,b){return (b.createdAt||0)-(a.createdAt||0);});}
+function sortedProjects(){return S.projects.slice().sort(function(a,b){return String(a.name||'').localeCompare(String(b.name||''),'he');});}
 
 function vHome(){
   var mk=todayStr().slice(0,7);
@@ -361,7 +361,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 28</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 29</div>';
   return h+'</main>';
 }
 function vProjects(){
