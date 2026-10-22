@@ -361,7 +361,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 26</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 27</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -702,7 +702,7 @@ function vUsers(){
   S.profiles.slice().sort(function(a,b){return (a.role==='pending'?0:1)-(b.role==='pending'?0:1);}).forEach(function(u){
     var me=u.id===AUTH.uid;
     h+='<div class="card"><div class="name">'+esc(u.name||u.email||'')+(me?' (אני)':'')+'</div><div class="muted ltr">'+esc(u.email||'')+'</div>'+
-     '<div class="fld" style="margin:10px 0 0"><label class="sr" for="r_'+esc(u.id)+'">תפקיד</label><select id="r_'+esc(u.id)+'" data-role="'+esc(u.id)+'"'+(me?' disabled':'')+'>'+ROLES.map(function(r){return '<option value="'+r[0]+'"'+(u.role===r[0]?' selected':'')+'>'+r[1]+'</option>';}).join('')+'</select></div>';
+     '<div class="fld" style="margin:10px 0 0"><label class="sr" for="r_'+esc(u.id)+'">תפקיד</label><select id="r_'+esc(u.id)+'" data-role="'+esc(u.id)+'"'+(me?' disabled':'')+'>'+ROLES.map(function(r){return '<option value="'+r[0]+'"'+(u.role===r[0]?' selected':'')+'>'+r[1]+'</option>';}).join('')+'</select></div>'+(me||!isAdmin()?'':'<div style="margin-top:10px"><button class="btn btn-danger" data-act="deluser" data-id="'+esc(u.id)+'">מחק משתמש</button></div>');
     if(u.role==='client'){
       h+='<div style="margin-top:10px"><b style="font-size:15px">פרויקטים של הלקוח:</b>'+(S.projects.length?S.projects.map(function(p){
         var on=S.client_projects.some(function(c){return c.user_id===u.id&&c.projectId===p.id;});
@@ -1173,6 +1173,10 @@ document.addEventListener('click',function(ev){
   }
   else if(a==='savepsup'){savePsup();}
   else if(a==='trall'){translateAll();}
+  else if(a==='deluser'){
+    if(!confirm('למחוק את המשתמש הזה לצמיתות? הוא לא יוכל להיכנס יותר.'))return;
+    sb.rpc('admin_delete_user',{uid:id}).then(function(r){if(r.error)toast('המחיקה לא הצליחה. ודא שהרצת את ה-SQL של מחיקת משתמשים.');else{toast('המשתמש נמחק ✓');loadTable('profiles');loadTable('team_members');}});
+  }
   else if(a==='mytasks'){UI.taskPerson='me';UI.taskFilter='open';UI.view='tasks';window.scrollTo(0,0);render();}
   else if(a==='bell'){openBell();}
   else if(a==='reload'){location.reload();}
