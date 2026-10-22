@@ -126,17 +126,28 @@ function botCall(body){
 }
 function translateRow(table,id){botCall({action:'translate',table:table,id:id}).then(function(){loadTable(table);}).catch(function(){});}
 function translateAll(){
-  var total=0,round=0;
-  toast('מתרגם לערבית… זה יכול לקחת דקה');
-  function step(){
-    round++;
-    return botCall({action:'backfill'}).then(function(r){
-      if(!r||!r.ok)throw new Error('x');
-      total+=r.translated||0;
-      if(r.remaining>0&&r.translated>0&&round<12)return step();
+  var jobs=[];
+  S.projects.forEach(function(p){if(!p.name_ar)jobs.push(['projects',p.id]);});
+  S.tasks.forEach(function(t){if(!t.title_ar)jobs.push(['tasks',t.id]);});
+  if(!jobs.length){toast('הכול כבר מתורגם ✓');return;}
+  var total=jobs.length,done=0,fail=0,idx=0,running=0;
+  toast('מתרגם '+total+' פריטים… נא לא לצאת מהדף');
+  function next(){
+    if(idx>=jobs.length){
+      if(running===0){
+        loadTable('tasks');loadTable('projects');
+        toast(fail?('תורגמו '+(done-fail)+', נכשלו '+fail+'. לחץ שוב לניסיון נוסף.'):('תורגמו '+done+' פריטים ✓'));
+      }
+      return;
+    }
+    var j=jobs[idx++];running++;
+    botCall({action:'translate',table:j[0],id:j[1]}).then(function(r){if(!r||!r.ok||!r.translated)fail++;}).catch(function(){fail++;}).then(function(){
+      running--;done++;
+      if(done%10===0&&done<total)toast('תורגמו '+done+' מתוך '+total+'…');
+      next();
     });
   }
-  step().then(function(){toast('תורגמו '+total+' פריטים לערבית ✓');loadTable('tasks');loadTable('projects');}).catch(function(){toast('התרגום לא הצליח. ודא שהבוט הוטמע מחדש ושמפתח ה-API קיים.');});
+  for(var k=0;k<4;k++)next();
 }
 function confetti(){
   try{if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches)return;}catch(e){}
@@ -322,7 +333,7 @@ var PSORT=[['az','לפי א-ב'],['status','לפי סטטוס'],['new','החדש
 var PST=['בהתחלה','בביצוע','בפינישים','הסתיים','סיום'];
 function projSortKey(){var v=lsGet('feder_psort');return PSORT.some(function(x){return x[0]===v;})?v:'az';}
 function sortedProjects(){
-  var k=projSortKey(),az=function(a,b){return String(a.name||'').localeCompare(String(b.name||''),'he');},ts=function(p){return Date.parse(p.createdAt||'')||0;};
+  var k=projSortKey(),az=function(a,b){return String(a.name||'').localeCompare(String(b.name||''),'he');},ts=function(p){return Number(p.createdAt)||0;};
   return S.projects.slice().sort(function(a,b){
     if(k==='status'){var d=PST.indexOf(a.status)-PST.indexOf(b.status);return d||az(a,b);}
     if(k==='new')return ts(b)-ts(a)||az(a,b);
@@ -372,7 +383,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 31</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 32</div>';
   return h+'</main>';
 }
 function vProjects(){
