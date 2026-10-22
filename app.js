@@ -308,7 +308,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 18</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 19</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -664,30 +664,35 @@ function expRowRO(x){
   return '<div class="item">'+(x.photo?'<button class="thumb" data-act="photo" data-id="'+esc(x.photo)+'" aria-label="הצג קבלה"><img class="thumb" src="'+purl(x.photo)+'" alt=""></button>':'')+
    '<div class="main"><div class="t">'+esc(x.vendor)+'</div><div class="muted">'+esc(pname(x.projectId))+' · '+fdate(x.date)+(x.pay?' · '+esc(x.pay):'')+(x.note?' · '+esc(x.note):'')+'</div></div><div class="amt">'+money(x.amount)+'</div></div>';
 }
-var WK={tasks:[],ok:false,showDone:false};
+var WK={tasks:[],projects:[],ok:false,showDone:false,mine:false,proj:''};
 async function loadWorker(){
-  var r=await sb.rpc('worker_tasks');
-  if(!r.error){WK.tasks=r.data||[];WK.ok=true;}else{WK.ok=WK.ok||false;WK.err=true;}
+  var r=await sb.rpc('worker_tasks'),r2=await sb.rpc('worker_projects');
+  if(!r.error&&!r2.error){WK.tasks=r.data||[];WK.projects=r2.data||[];WK.ok=true;WK.err=false;}else{WK.err=true;}
   render();
 }
 function vWorker(){
   var h='<header class="band"><div class="wrap"><div class="top"><div style="min-width:0"><div class="sub">فيدر للبناء</div><h1>أهلاً'+(AUTH.name?' '+esc(AUTH.name):'')+'</h1></div><img class="logo" src="'+LOGO+'" alt=""></div></div></header><main class="wrap" dir="rtl" lang="ar">';
   if(!WK.ok){return h+'<div class="pull">'+emptyBox(WK.err?'تعذّر التحميل، حاول مرة أخرى.':'جارٍ التحميل…')+'</div></main>';}
-  var open=WK.tasks.filter(function(t){return t.status!=='הושלם';}),done=WK.tasks.filter(function(t){return t.status==='הושלם';});
+  var all=WK.tasks.filter(function(t){return (!WK.mine||t.mine)&&(!WK.proj||t.project_id===WK.proj);});
+  var open=all.filter(function(t){return t.status!=='הושלם';}),done=all.filter(function(t){return t.status==='הושלם';});
   var today=todayStr();
-  function ttl(t){return t.title_ar||t.title;}
+  function fd(d){return d.split('-').reverse().join('/');}
   function row(t){
     var d=t.status==='הושלם';
-    var due=t.due?(!d&&t.due<today?chip('warn','متأخرة · '+t.due.split('-').reverse().join('/')):'<span class="muted">'+esc(t.due.split('-').reverse().join('/'))+'</span>'):'';
-    return '<div class="item"><button class="tick '+(d?'d':'')+'" data-act="wtoggle" data-id="'+esc(t.id)+'" aria-label="'+(d?'إرجاع':'تم الإنجاز')+'">'+(d?ico('check',20):'')+'</button><div class="main"><div class="t"'+(d?' style="text-decoration:line-through;opacity:.7"':'')+'>'+esc(ttl(t))+'</div>'+(t.notes?'<div class="muted">'+esc(t.notes)+'</div>':'')+(due?'<div>'+due+'</div>':'')+'</div></div>';
+    var due=t.due?(!d&&t.due<today?chip('warn','متأخرة · '+fd(t.due)):'<span class="muted">'+fd(t.due)+'</span>'):'';
+    return '<div class="item"><button class="tick '+(d?'d':'')+'" data-act="wtoggle" data-id="'+esc(t.id)+'" aria-label="'+(d?'إرجاع':'تم الإنجاز')+'">'+(d?ico('check',20):'')+'</button><div class="main"><div class="t"'+(d?' style="text-decoration:line-through;opacity:.7"':'')+'>'+esc(t.title_ar||t.title)+'</div>'+(t.notes?'<div class="muted">'+esc(t.notes)+'</div>':'')+(due?'<div>'+due+'</div>':'')+'</div>'+(t.assignee_name?chip('info',t.assignee_name):'')+'</div>';
   }
   h+='<div class="card pull stat"><div class="k">مهام مفتوحة</div><div class="v">'+open.length+'</div></div>';
   if(!pushOn()&&pushSupported())h+='<div class="card" style="margin-top:12px"><b>الإشعارات</b><div class="muted" style="margin:4px 0 8px">فعّل الإشعارات لتصلك المهام الجديدة.</div><button class="btn btn-accent" data-act="pushon">تفعيل الإشعارات</button><div class="muted" id="pushst" style="margin-top:6px"></div></div>';
-  var by={},order=[];
-  sortTasks(open.map(function(t){return {id:t.id,title:t.title,status:t.status,due:t.due,projectId:t.project_id};})).forEach(function(x){
-    var t=WK.tasks.filter(function(q){return q.id===x.id;})[0];var k=t.project_name||'—';if(!by[k]){by[k]=[];order.push(k);}by[k].push(t);});
-  if(!open.length)h+=emptyBox('لا توجد مهام حالياً 👍');
-  order.forEach(function(k){h+='<div class="sec"><h2>'+esc(k)+'</h2></div><div class="stack">'+by[k].map(row).join('')+'</div>';});
+  h+='<div class="filters" style="margin-top:12px"><button class="fchip" data-act="wmine" data-v="0" aria-pressed="'+(!WK.mine)+'">كل المهام</button><button class="fchip" data-act="wmine" data-v="1" aria-pressed="'+WK.mine+'">مهامي</button></div>';
+  h+='<div class="filters" style="margin-top:8px"><button class="fchip" data-act="wproj" data-id="" aria-pressed="'+(!WK.proj)+'">كل المشاريع</button>'+WK.projects.map(function(p){return '<button class="fchip" data-act="wproj" data-id="'+esc(p.id)+'" aria-pressed="'+(WK.proj===p.id)+'">'+esc(p.name)+'</button>';}).join('')+'</div>';
+  var list=WK.projects.filter(function(p){return !WK.proj||p.id===WK.proj;}),any=false;
+  list.forEach(function(p){
+    var ts=open.filter(function(t){return t.project_id===p.id;}).sort(function(a,b){return String(a.due||'9999').localeCompare(String(b.due||'9999'));});
+    if(!ts.length)return;any=true;
+    h+='<div class="sec"><h2>'+esc(p.name)+'</h2></div>'+(p.address?'<div class="muted" style="margin:-6px 0 8px">'+esc(p.address)+'</div>':'')+'<div class="stack">'+ts.map(row).join('')+'</div>';
+  });
+  if(!any)h+=emptyBox('لا توجد مهام مفتوحة 👍');
   if(done.length){
     h+='<div style="text-align:center;margin:18px 0 6px"><button class="link" data-act="wshowdone">'+(WK.showDone?'إخفاء المنجزة':'عرض المهام المنجزة ('+done.length+')')+'</button></div>';
     if(WK.showDone)h+='<div class="stack">'+done.map(row).join('')+'</div>';
@@ -1080,6 +1085,8 @@ document.addEventListener('click',function(ev){
   else if(a==='gdisc'){gDisconnect();}
   else if(a==='logout'){sb.auth.signOut();}
   else if(a==='wtoggle'){var wt=WK.tasks.filter(function(q){return q.id===id;})[0];if(wt){var nd=wt.status!=='הושלם';wt.status=nd?'הושלם':'לביצוע';render();sb.rpc('worker_set_done',{tid:id,is_done:nd}).then(function(){loadWorker();});}}
+  else if(a==='wmine'){WK.mine=el.getAttribute('data-v')==='1';render();}
+  else if(a==='wproj'){WK.proj=id||'';render();}
   else if(a==='wshowdone'){WK.showDone=!WK.showDone;render();}
   else if(a==='pushon'){pushEnable();}
   else if(a==='opensup'){UI.projSup=id;UI.projSupFor=UI.projectId;window.scrollTo(0,0);render();}
