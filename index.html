@@ -13,13 +13,15 @@
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=22">
 </head>
 <body>
+<div id="splash"><img src="icons/icon-192.png" alt=""><b>פדר בניה</b></div>
+<script>try{var sp=document.getElementById("splash");if(sessionStorage.getItem("feder_splash")){sp.remove();}else{sessionStorage.setItem("feder_splash","1");setTimeout(function(){sp.classList.add("out");setTimeout(function(){sp.remove();},500);},1300);}}catch(e){}</script>
 <div id="app" dir="rtl" lang="he"><div class="loading">טוען…</div></div>
 <div id="layer" dir="rtl" lang="he"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="app.js?v=21"></script>
+<script src="app.js?v=22"></script>
 </body>
 </html>

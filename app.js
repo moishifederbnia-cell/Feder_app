@@ -8,7 +8,7 @@ var TABLES=['projects','tasks','expenses','suppliers','orders','docs','messages'
 var S={plans:[],projects:[],tasks:[],expenses:[],suppliers:[],orders:[],docs:[],messages:[],events:[],profiles:[],client_projects:[],team_members:[],project_suppliers:[],supplier_docs:[]};
 var loaded={};
 var AUTH={state:'loading',uid:null,name:'',role:'',msg:'',ok:''};
-var UI={calMonth:null,calSel:null,view:'home',projectId:null,tab:'tasks',taskFilter:'open',taskProject:'',taskPerson:'',projSup:'',projSupFor:'',expProject:'',supQuery:'',supField:'',supProject:'',clientProject:null};
+var UI={calMonth:null,calSel:null,view:'home',projectId:null,tab:'tasks',taskFilter:'open',taskProject:'',taskPerson:'',justDone:'',projSup:'',projSupFor:'',expProject:'',supQuery:'',supField:'',supProject:'',clientProject:null};
 var form=null;
 var LOGO='icons/logo.png';
 var PHOTO={};
@@ -116,9 +116,15 @@ function remindWhen(date,startTime,opt){
   if(!startTime&&m<1440)m=0;
   return new Date(base.getTime()-m*60000);
 }
+function confetti(){
+  try{if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches)return;}catch(e){}
+  var c=document.createElement('div');c.className='confetti';var cols=['#F7941D','#384E69','#2E9E5B','#DDD6CB','#E53935','#4F7CAC'],h='';
+  for(var i=0;i<34;i++){h+='<i style="left:'+(Math.random()*100)+'%;background:'+cols[i%cols.length]+';animation-delay:'+(Math.random()*.35)+'s;--dx:'+Math.round(Math.random()*120-60)+'px;--rot:'+Math.round(Math.random()*720-360)+'deg"></i>';}
+  c.innerHTML=h;document.body.appendChild(c);setTimeout(function(){c.remove();},2200);
+}
 function toast(t){
   var d=document.createElement('div');d.textContent=t;
-  d.style.cssText='position:fixed;left:12px;right:12px;bottom:96px;z-index:99;background:#384E69;color:#fff;padding:12px 14px;border-radius:12px;font-weight:700;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.3)';
+  d.style.animation='fadeUp .3s ease-out';d.style.cssText+='position:fixed;left:12px;right:12px;bottom:96px;z-index:99;background:#384E69;color:#fff;padding:12px 14px;border-radius:12px;font-weight:700;text-align:center;box-shadow:0 6px 20px rgba(0,0,0,.3)';
   document.body.appendChild(d);setTimeout(function(){d.remove();},5000);
 }
 async function setReminder(ref,title,body,when,uid){
@@ -160,7 +166,7 @@ async function loadBell(){
 }
 function bellBtn(){
   var seen=bellSeen(),n=BELL.filter(function(x){return Date.parse(x.remind_at)>seen;}).length;
-  return '<button class="bellbtn" data-act="bell" aria-label="התראות'+(n?' ('+n+' חדשות)':'')+'">'+ico('bell',26)+(n?'<span class="bdg">'+n+'</span>':'')+'</button>';
+  return '<button class="bellbtn'+(n?' ring':'')+'" data-act="bell" aria-label="התראות'+(n?' ('+n+' חדשות)':'')+'">'+ico('bell',26)+(n?'<span class="bdg">'+n+'</span>':'')+'</button>';
 }
 function openBell(){
   var seen=bellSeen();
@@ -333,7 +339,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 21</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 22</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -348,7 +354,7 @@ function taskRow(showProj,editable,t){
   var overdue=t.status!=='הושלם'&&t.due&&t.due<todayStr();
   var cls=t.status==='הושלם'?'d':(t.status==='בתהליך'?'p':'');
   var due=t.due?(overdue?chip('warn','באיחור · '+fdate(t.due)):'<span class="muted">'+fdate(t.due)+'</span>'):'';
-  var tick=editable?'<button class="tick '+cls+'" data-act="toggle" data-id="'+esc(t.id)+'" aria-label="'+(t.status==='הושלם'?'החזר לביצוע':'סמן כהושלם')+'">'+(t.status==='הושלם'?ico('check',20):'')+'</button>':'<span class="tick '+cls+'">'+(t.status==='הושלם'?ico('check',20):'')+'</span>';
+  var tick=editable?'<button class="tick '+cls+(UI.justDone===t.id?' pop':'')+'" data-act="toggle" data-id="'+esc(t.id)+'" aria-label="'+(t.status==='הושלם'?'החזר לביצוע':'סמן כהושלם')+'">'+(t.status==='הושלם'?ico('check',20):'')+'</button>':'<span class="tick '+cls+'">'+(t.status==='הושלם'?ico('check',20):'')+'</span>';
   var main='<div class="t"'+(t.status==='הושלם'?' style="text-decoration:line-through;opacity:.7"':'')+'>'+esc(t.title)+'</div><div class="muted">'+(showProj?esc(pname(t.projectId))+(t.due?' · ':''):'')+due+'</div>';
   return '<div class="item">'+tick+(editable?'<button class="main" data-act="edit" data-e="task" data-id="'+esc(t.id)+'">'+main+'</button>':'<div class="main">'+main+'</div>')+
    (t.assigneeId&&teamName(t.assigneeId)?chip('info',teamName(t.assigneeId)):'')+(t.status!=='לביצוע'&&t.status!=='הושלם'?chip(TASK_CHIP[t.status]||'neutral',t.status):'')+'</div>';
@@ -1091,7 +1097,15 @@ document.addEventListener('click',function(ev){
   else if(a==='closeSheet'){closeSheet();}
   else if(a==='delete'){doDelete();}
   else if(a==='rmphoto'){if(form){form.removed=true;form.file=null;var p=$('#phprev');if(p)p.innerHTML=ico('camera',40);el.remove();}}
-  else if(a==='toggle'){var t=byId('tasks',id);if(t)sb.from('tasks').update(t.status==='הושלם'?{status:'לביצוע',done_at:null}:{status:'הושלם',done_at:new Date().toISOString()}).eq('id',id).then(function(){loadTable('tasks');});}
+  else if(a==='toggle'){var t=byId('tasks',id);if(t){
+    var wasDone=t.status==='הושלם';
+    sb.from('tasks').update(wasDone?{status:'לביצוע',done_at:null}:{status:'הושלם',done_at:new Date().toISOString()}).eq('id',id).then(function(){loadTable('tasks');});
+    if(!wasDone){
+      t.status='הושלם';UI.justDone=id;render();setTimeout(function(){UI.justDone='';},900);
+      var sib=S.tasks.filter(function(q){return q.projectId===t.projectId;});
+      if(sib.length>1&&sib.every(function(q){return q.status==='הושלם';})){confetti();toast('כל המשימות בפרויקט הושלמו! 🎉');}
+    }
+  }}
   else if(a==='cycle'){var o=byId('orders',id);if(o)sb.from('orders').update({status:ORD_NEXT[o.status]||'הוזמן'}).eq('id',id).then(function(){loadTable('orders');});}
   else if(a==='photo'){var lb=document.createElement('button');lb.className='lightbox';lb.setAttribute('aria-label','סגור תמונה');lb.innerHTML=isVid(id)?'<video src="'+purl(id)+'" controls autoplay playsinline style="max-width:100%;max-height:100%"></video>':'<img src="'+purl(id)+'" alt="תמונה">';lb.onclick=function(ev){if(ev.target.tagName==='VIDEO')return;lb.remove();if(history.state&&history.state.lb)history.back();};document.body.appendChild(lb);pushOverlay('lb');}
   else if(a==='import'){startImport();}
@@ -1238,6 +1252,11 @@ sb.auth.onAuthStateChange(function(ev,session){
 setInterval(function(){if(AUTH.state==='app'&&AUTH.role==='worker'){loadWorker();return;}if(AUTH.state==='app'&&!form&&!document.hidden)loadAll();loadBell();},45000);
 document.addEventListener('visibilitychange',function(){if(!document.hidden&&AUTH.state==='app'&&AUTH.role==='worker'){loadWorker();return;}
   if(!document.hidden&&AUTH.state==='app'&&!form){loadAll();if(!gReady())gSilent();}});
+var lastRKey='';
+(function(){var base=render;render=function(){base();try{
+  var k=[AUTH.state,AUTH.role,UI.view,UI.projectId,UI.tab,UI.projSup,UI.clientProject,WK.proj].join('|');
+  if(k!==lastRKey){lastRKey=k;var ap=document.getElementById('app');ap.classList.remove('enter');void ap.offsetWidth;ap.classList.add('enter');setTimeout(function(){ap.classList.remove('enter');},900);}
+}catch(e){}};})();
 render();
 if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}
 })();

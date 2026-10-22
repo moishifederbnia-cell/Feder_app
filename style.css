@@ -191,3 +191,36 @@ i.lg{width:10px;height:10px}
 .bellbtn .bdg{position:absolute;top:0;inset-inline-start:0;background:#E53935;color:#fff;border-radius:999px;min-width:20px;height:20px;font:700 12px/20px Heebo,sans-serif;text-align:center;padding:0 5px}
 
 .doc .im{position:relative}.doc .im video{width:100%;height:100%;object-fit:cover;display:block}.vplay{position:absolute;inset:0;margin:auto;width:44px;height:44px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;display:flex;align-items:center;justify-content:center;pointer-events:none}.phprev video{max-width:100%;max-height:260px;border-radius:12px}
+
+/* ---- animations ---- */
+#splash{position:fixed;inset:0;z-index:100;background:#384E69;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;color:#DDD6CB}
+#splash img{width:112px;height:112px;border-radius:26px;box-shadow:0 10px 30px rgba(0,0,0,.35)}
+#splash b{font:800 28px Heebo,sans-serif}
+#splash.out{opacity:0;transition:opacity .45s ease}
+.confetti{position:fixed;inset:0;pointer-events:none;z-index:90;overflow:hidden}
+.confetti i{position:absolute;top:-16px;width:9px;height:14px;border-radius:2px}
+@keyframes logoIn{from{opacity:0;transform:scale(.45) rotate(-10deg)}to{opacity:1;transform:none}}
+@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+@keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+@keyframes popIn{0%{transform:scale(1)}40%{transform:scale(1.3)}100%{transform:scale(1)}}
+@keyframes draw{to{stroke-dashoffset:0}}
+@keyframes ring{0%,38%,100%{transform:rotate(0)}4%{transform:rotate(16deg)}8%{transform:rotate(-14deg)}12%{transform:rotate(10deg)}16%{transform:rotate(-7deg)}20%{transform:rotate(3deg)}24%{transform:rotate(0)}}
+@keyframes fall{to{transform:translate(var(--dx),108vh) rotate(var(--rot))}}
+@keyframes badgePop{0%{transform:scale(.4)}70%{transform:scale(1.25)}100%{transform:scale(1)}}
+@media (prefers-reduced-motion:no-preference){
+ #splash img{animation:logoIn .9s cubic-bezier(.2,.9,.3,1.25) both}
+ #splash b{animation:fadeUp .6s .55s both}
+ .enter main.wrap{animation:fadeUp .35s ease-out both}
+ .enter .stack>*{animation:fadeUp .35s ease-out both}
+ .enter .stack>*:nth-child(2){animation-delay:.04s}.enter .stack>*:nth-child(3){animation-delay:.08s}.enter .stack>*:nth-child(4){animation-delay:.12s}
+ .enter .stack>*:nth-child(5){animation-delay:.16s}.enter .stack>*:nth-child(6){animation-delay:.2s}.enter .stack>*:nth-child(n+7){animation-delay:.24s}
+ .enter .bar i{transform-origin:right;animation:grow .8s .15s cubic-bezier(.2,.8,.2,1) both}
+ .tick.pop{animation:popIn .45s ease}
+ .tick.pop svg *{stroke-dasharray:30;stroke-dashoffset:30;animation:draw .35s .08s ease-out forwards}
+ .bellbtn.ring svg{transform-origin:50% 10%;animation:ring 4s ease-in-out infinite}
+ .bellbtn .bdg{animation:badgePop .5s ease-out}
+ .confetti i{animation:fall 1.7s cubic-bezier(.3,.6,.5,1) forwards}
+ .btn,.act,.item,.fchip,.tab{transition:transform .12s ease}
+ .btn:active,.act:active,.item:active,.fchip:active,.tab:active{transform:scale(.97)}
+}
+@media (prefers-reduced-motion:reduce){#splash{display:none}}
