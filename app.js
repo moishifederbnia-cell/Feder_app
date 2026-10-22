@@ -116,7 +116,7 @@ function remindWhen(date,startTime,opt){
   if(!startTime&&m<1440)m=0;
   return new Date(base.getTime()-m*60000);
 }
-var BOT_URL='https://jaaidfpfeihxfhzxsuak.supabase.co/functions/v1/smooth-processor';
+var BOT_URL='https://jaaidfpfeihxfhzxsuak.supabase.co/functions/v1/smooth-worker';
 function botCall(body){
   return sb.auth.getSession().then(function(s){
     var tok=s&&s.data&&s.data.session&&s.data.session.access_token;if(!tok)throw new Error('no session');
@@ -360,7 +360,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 24</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 25</div>';
   return h+'</main>';
 }
 function vProjects(){
