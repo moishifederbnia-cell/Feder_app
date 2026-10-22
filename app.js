@@ -207,7 +207,7 @@ var F={
   {k:'status',l:'סטטוס',t:'select',o:['בהתחלה','בביצוע','סיום'],d:'בביצוע'},
   {k:'budget',l:'תקציב (₪)',t:'number'}]},
  task:{title:'משימה',col:'tasks',fields:[
-  {k:'projectId',l:'פרויקט',t:'project',req:1},{k:'title',l:'מה צריך לעשות',t:'text',req:1},
+  {k:'projectId',l:'פרויקט',t:'project',req:1},{k:'title',l:'מה צריך לעשות',t:'text',req:1},{k:'title_ar',l:'כותרת בערבית (לא חובה, לעובד שטח)',t:'text'},
   {k:'assigneeId',l:'אחראי (ימתין לביצוע אצל)',t:'assignee'},{k:'due',l:'עד תאריך',t:'date'},{k:'remind',l:'תזכורת בטלפון (דרך יומן גוגל)',t:'select',o:['ללא','בבוקר של היום (8:00)','יום לפני (18:00)'],d:'ללא'},{k:'status',l:'סטטוס',t:'select',o:['לביצוע','בתהליך','הושלם'],d:'לביצוע'},
   {k:'notes',l:'הערות',t:'textarea'}]},
  expense:{title:'הוצאה / קבלה',col:'expenses',fields:[
@@ -308,7 +308,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 17</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 18</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -635,12 +635,12 @@ function vCalendar(){
 }
 
 /* users (admin) */
-var ROLES=[['pending','ממתין לאישור'],['admin','מנהל'],['team','צוות'],['accountant','רואה חשבון'],['client','לקוח']];
+var ROLES=[['pending','ממתין לאישור'],['admin','מנהל'],['team','צוות'],['accountant','רואה חשבון'],['client','לקוח'],['worker','עובד שטח (ערבית, משימות בלבד)']];
 function vUsers(){
   var h=bandHtml('משתמשים והרשאות',null,{back:'חזרה'});
   h+='<main class="wrap" style="'+PULL+'">';
   if(isAdmin()&&S.team_members.length){
-    var staffU=S.profiles.filter(function(u){return u.role==='admin'||u.role==='team';});
+    var staffU=S.profiles.filter(function(u){return u.role==='admin'||u.role==='team'||u.role==='worker';});
     h+='<div class="card" style="margin-bottom:12px"><b>צוות העבודה</b><div class="muted" style="margin:4px 0 8px">חבר כל אחד מהצוות למשתמש שלו כדי שיקבל התראות על משימות שמשויכות אליו.</div>'+
       S.team_members.map(function(m){return '<div class="fld" style="margin:8px 0 0"><label for="tm_'+esc(m.id)+'">'+esc(m.name)+(m.title?' · '+esc(m.title):'')+'</label><select id="tm_'+esc(m.id)+'" data-tm="'+esc(m.id)+'"><option value="">לא מחובר</option>'+staffU.map(function(u){return '<option value="'+esc(u.id)+'"'+(m.user_id===u.id?' selected':'')+'>'+esc(u.name||u.email||'')+'</option>';}).join('')+'</select></div>';}).join('')+'</div>';
   }
@@ -663,6 +663,36 @@ function vUsers(){
 function expRowRO(x){
   return '<div class="item">'+(x.photo?'<button class="thumb" data-act="photo" data-id="'+esc(x.photo)+'" aria-label="הצג קבלה"><img class="thumb" src="'+purl(x.photo)+'" alt=""></button>':'')+
    '<div class="main"><div class="t">'+esc(x.vendor)+'</div><div class="muted">'+esc(pname(x.projectId))+' · '+fdate(x.date)+(x.pay?' · '+esc(x.pay):'')+(x.note?' · '+esc(x.note):'')+'</div></div><div class="amt">'+money(x.amount)+'</div></div>';
+}
+var WK={tasks:[],ok:false,showDone:false};
+async function loadWorker(){
+  var r=await sb.rpc('worker_tasks');
+  if(!r.error){WK.tasks=r.data||[];WK.ok=true;}else{WK.ok=WK.ok||false;WK.err=true;}
+  render();
+}
+function vWorker(){
+  var h='<header class="band"><div class="wrap"><div class="top"><div style="min-width:0"><div class="sub">فيدر للبناء</div><h1>أهلاً'+(AUTH.name?' '+esc(AUTH.name):'')+'</h1></div><img class="logo" src="'+LOGO+'" alt=""></div></div></header><main class="wrap" dir="rtl" lang="ar">';
+  if(!WK.ok){return h+'<div class="pull">'+emptyBox(WK.err?'تعذّر التحميل، حاول مرة أخرى.':'جارٍ التحميل…')+'</div></main>';}
+  var open=WK.tasks.filter(function(t){return t.status!=='הושלם';}),done=WK.tasks.filter(function(t){return t.status==='הושלם';});
+  var today=todayStr();
+  function ttl(t){return t.title_ar||t.title;}
+  function row(t){
+    var d=t.status==='הושלם';
+    var due=t.due?(!d&&t.due<today?chip('warn','متأخرة · '+t.due.split('-').reverse().join('/')):'<span class="muted">'+esc(t.due.split('-').reverse().join('/'))+'</span>'):'';
+    return '<div class="item"><button class="tick '+(d?'d':'')+'" data-act="wtoggle" data-id="'+esc(t.id)+'" aria-label="'+(d?'إرجاع':'تم الإنجاز')+'">'+(d?ico('check',20):'')+'</button><div class="main"><div class="t"'+(d?' style="text-decoration:line-through;opacity:.7"':'')+'>'+esc(ttl(t))+'</div>'+(t.notes?'<div class="muted">'+esc(t.notes)+'</div>':'')+(due?'<div>'+due+'</div>':'')+'</div></div>';
+  }
+  h+='<div class="card pull stat"><div class="k">مهام مفتوحة</div><div class="v">'+open.length+'</div></div>';
+  if(!pushOn()&&pushSupported())h+='<div class="card" style="margin-top:12px"><b>الإشعارات</b><div class="muted" style="margin:4px 0 8px">فعّل الإشعارات لتصلك المهام الجديدة.</div><button class="btn btn-accent" data-act="pushon">تفعيل الإشعارات</button><div class="muted" id="pushst" style="margin-top:6px"></div></div>';
+  var by={},order=[];
+  sortTasks(open.map(function(t){return {id:t.id,title:t.title,status:t.status,due:t.due,projectId:t.project_id};})).forEach(function(x){
+    var t=WK.tasks.filter(function(q){return q.id===x.id;})[0];var k=t.project_name||'—';if(!by[k]){by[k]=[];order.push(k);}by[k].push(t);});
+  if(!open.length)h+=emptyBox('لا توجد مهام حالياً 👍');
+  order.forEach(function(k){h+='<div class="sec"><h2>'+esc(k)+'</h2></div><div class="stack">'+by[k].map(row).join('')+'</div>';});
+  if(done.length){
+    h+='<div style="text-align:center;margin:18px 0 6px"><button class="link" data-act="wshowdone">'+(WK.showDone?'إخفاء المنجزة':'عرض المهام المنجزة ('+done.length+')')+'</button></div>';
+    if(WK.showDone)h+='<div class="stack">'+done.map(row).join('')+'</div>';
+  }
+  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div></main>';
 }
 function vAccountant(){
   var list=S.expenses.filter(function(x){return !UI.expProject||x.projectId===UI.expProject;});
@@ -730,6 +760,7 @@ function draw(){
     if(keep.n)$('#l_name').value=keep.n;if(keep.m)$('#l_mail').value=keep.m;return;
   }
   if(AUTH.state==='pending'){app.innerHTML=vPending();return;}
+  if(AUTH.role==='worker'){app.innerHTML=vWorker();return;}
   var ready=TABLES.every(function(c){return loaded[c];});
   if(!ready){app.innerHTML='<div class="loading">טוען…</div>';return;}
   var y=window.scrollY,typed=($('#msgin')||{}).value,ae=document.activeElement,aid=ae&&ae.id&&$('#app').contains(ae)?ae.id:'',sqv=($('#sq')||{}).value;
@@ -938,7 +969,8 @@ async function submitForm(ev){
       if(asg&&(!exT||exT.assigneeId!==data.assigneeId)){
         if(asg.user_id){
           if(asg.user_id!==AUTH.uid){
-            try{await sb.from('reminders').insert({user_id:asg.user_id,ref:'assign:'+taskId+':'+Date.now(),title:'משימה חדשה בשבילך',body:data.title+(data.projectId?' · '+pname(data.projectId):''),remind_at:new Date().toISOString()});}catch(e3){}
+            var wprof=S.profiles.filter(function(u){return u.id===asg.user_id;})[0],isW=wprof&&wprof.role==='worker';
+            try{await sb.from('reminders').insert({user_id:asg.user_id,ref:'assign:'+taskId+':'+Date.now(),title:isW?'مهمة جديدة لك':'משימה חדשה בשבילך',body:(isW&&data.title_ar?data.title_ar:data.title)+(data.projectId?' · '+pname(data.projectId):''),remind_at:new Date().toISOString()});}catch(e3){}
           }
         }else{setTimeout(function(){toast(asg.name+' עוד לא מחובר/ת למשתמש, לא תישלח התראה.');},400);}
       }
@@ -1047,6 +1079,8 @@ document.addEventListener('click',function(ev){
   else if(a==='gconnect'){gConnect();}
   else if(a==='gdisc'){gDisconnect();}
   else if(a==='logout'){sb.auth.signOut();}
+  else if(a==='wtoggle'){var wt=WK.tasks.filter(function(q){return q.id===id;})[0];if(wt){var nd=wt.status!=='הושלם';wt.status=nd?'הושלם':'לביצוע';render();sb.rpc('worker_set_done',{tid:id,is_done:nd}).then(function(){loadWorker();});}}
+  else if(a==='wshowdone'){WK.showDone=!WK.showDone;render();}
   else if(a==='pushon'){pushEnable();}
   else if(a==='opensup'){UI.projSup=id;UI.projSupFor=UI.projectId;window.scrollTo(0,0);render();}
   else if(a==='supback'){UI.projSup='';window.scrollTo(0,0);render();}
@@ -1153,14 +1187,16 @@ async function boot(session){
   AUTH.name=pr.name||'';AUTH.role=pr.role||'pending';
   if(AUTH.role==='pending'){AUTH.state='pending';render();return;}
   AUTH.state='app';render();
+  if(AUTH.role==='worker'){await loadWorker();return;}
   gRestore();if(!gReady())gSilent();
   await loadAll();loadBell();subscribe();
 }
 sb.auth.onAuthStateChange(function(ev,session){
   if(ev==='INITIAL_SESSION'||ev==='SIGNED_IN'||ev==='SIGNED_OUT')setTimeout(function(){boot(session);},0);
 });
-setInterval(function(){if(AUTH.state==='app'&&!form&&!document.hidden)loadAll();loadBell();},45000);
-document.addEventListener('visibilitychange',function(){if(!document.hidden&&AUTH.state==='app'&&!form){loadAll();if(!gReady())gSilent();}});
+setInterval(function(){if(AUTH.state==='app'&&AUTH.role==='worker'){loadWorker();return;}if(AUTH.state==='app'&&!form&&!document.hidden)loadAll();loadBell();},45000);
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&AUTH.state==='app'&&AUTH.role==='worker'){loadWorker();return;}
+  if(!document.hidden&&AUTH.state==='app'&&!form){loadAll();if(!gReady())gSilent();}});
 render();
 if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}
 })();
