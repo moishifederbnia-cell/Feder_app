@@ -41,6 +41,7 @@ function gSilent(){
     else if(tries>20)clearInterval(t);
   },300);
 }
+document.addEventListener('click',function(){if(!gReady())gSilent();},true);
 function gDisconnect(){try{localStorage.removeItem('feder_gtok');}catch(e){}G.token=null;G.exp=0;G.events=[];G.range='';lsSet('feder_gcal','0');render();}
 function gApi(method,path,body){
   return fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events'+path,{method:method,headers:{'Authorization':'Bearer '+G.token,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined}).then(function(res){
@@ -360,7 +361,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 25</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 26</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -1274,7 +1275,7 @@ async function boot(session){
   if(AUTH.role==='pending'){AUTH.state='pending';render();return;}
   AUTH.state='app';render();
   if(AUTH.role==='worker'){await loadWorker();return;}
-  gRestore();if(!gReady())gSilent();
+  gRestore();
   await loadAll();loadBell();subscribe();
 }
 sb.auth.onAuthStateChange(function(ev,session){
@@ -1282,7 +1283,7 @@ sb.auth.onAuthStateChange(function(ev,session){
 });
 setInterval(function(){if(AUTH.state==='app'&&AUTH.role==='worker'){loadWorker();return;}if(AUTH.state==='app'&&!form&&!document.hidden)loadAll();loadBell();},45000);
 document.addEventListener('visibilitychange',function(){if(!document.hidden&&AUTH.state==='app'&&AUTH.role==='worker'){loadWorker();return;}
-  if(!document.hidden&&AUTH.state==='app'&&!form){loadAll();if(!gReady())gSilent();}});
+  if(!document.hidden&&AUTH.state==='app'&&!form){loadAll();}});
 var lastRKey='';
 (function(){var base=render;render=function(){base();try{
   var k=[AUTH.state,AUTH.role,UI.view,UI.projectId,UI.tab,UI.projSup,UI.clientProject,WK.proj].join('|');
