@@ -116,6 +116,27 @@ function remindWhen(date,startTime,opt){
   if(!startTime&&m<1440)m=0;
   return new Date(base.getTime()-m*60000);
 }
+var BOT_URL='https://jaaidfpfeihxfhzxsuak.supabase.co/functions/v1/smooth-worker';
+function botCall(body){
+  return sb.auth.getSession().then(function(s){
+    var tok=s&&s.data&&s.data.session&&s.data.session.access_token;if(!tok)throw new Error('no session');
+    return fetch(BOT_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+tok},body:JSON.stringify(body)}).then(function(r){return r.json();});
+  });
+}
+function translateRow(table,id){botCall({action:'translate',table:table,id:id}).then(function(){loadTable(table);}).catch(function(){});}
+function translateAll(){
+  var total=0,round=0;
+  toast('מתרגם לערבית… זה יכול לקחת דקה');
+  function step(){
+    round++;
+    return botCall({action:'backfill'}).then(function(r){
+      if(!r||!r.ok)throw new Error('x');
+      total+=r.translated||0;
+      if(r.remaining>0&&r.translated>0&&round<12)return step();
+    });
+  }
+  step().then(function(){toast('תורגמו '+total+' פריטים לערבית ✓');loadTable('tasks');loadTable('projects');}).catch(function(){toast('התרגום לא הצליח. ודא שהבוט הוטמע מחדש ושמפתח ה-API קיים.');});
+}
 function confetti(){
   try{if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches)return;}catch(e){}
   var c=document.createElement('div');c.className='confetti';var cols=['#F7941D','#384E69','#2E9E5B','#DDD6CB','#E53935','#4F7CAC'],h='';
@@ -339,7 +360,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 22</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 23</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -675,6 +696,7 @@ function vUsers(){
     h+='<div class="card" style="margin-bottom:12px"><b>צוות העבודה</b><div class="muted" style="margin:4px 0 8px">חבר כל אחד מהצוות למשתמש שלו כדי שיקבל התראות על משימות שמשויכות אליו.</div>'+
       S.team_members.map(function(m){return '<div class="fld" style="margin:8px 0 0"><label for="tm_'+esc(m.id)+'">'+esc(m.name)+(m.title?' · '+esc(m.title):'')+'</label><select id="tm_'+esc(m.id)+'" data-tm="'+esc(m.id)+'"><option value="">לא מחובר</option>'+staffU.map(function(u){return '<option value="'+esc(u.id)+'"'+(m.user_id===u.id?' selected':'')+'>'+esc(u.name||u.email||'')+'</option>';}).join('')+'</select><input class="ltr" type="tel" inputmode="tel" data-tmph="'+esc(m.id)+'" value="'+esc(m.phone||'')+'" placeholder="טלפון לבוט וואטסאפ (05...)" aria-label="טלפון של '+esc(m.name)+'" style="margin-top:6px"></div>';}).join('')+'</div>';
   }
+  if(isAdmin())h+='<div class="card" style="margin-bottom:12px"><b>תרגום לערבית</b><div class="muted" style="margin:4px 0 8px">פרויקטים ומשימות מתורגמים לערבית אוטומטית בכל שמירה. כפתור זה מתרגם את מה שכבר קיים.</div><button class="btn btn-accent" data-act="trall">תרגם הכול לערבית</button></div>';
   h+='<div class="card muted" style="margin-bottom:12px">מי שנרשם ממתין עד שתבחר לו תפקיד. צוות רואה ועורך הכול. רואה חשבון רואה הוצאות בלבד. לקוח רואה רק את הפרויקטים ששייכת לו.</div><div class="stack">';
   S.profiles.slice().sort(function(a,b){return (a.role==='pending'?0:1)-(b.role==='pending'?0:1);}).forEach(function(u){
     var me=u.id===AUTH.uid;
@@ -711,17 +733,17 @@ function vWorker(){
   function row(t){
     var d=t.status==='הושלם';
     var due=t.due?(!d&&t.due<today?chip('warn','متأخرة · '+fd(t.due)):'<span class="muted">'+fd(t.due)+'</span>'):'';
-    return '<div class="item"><button class="tick '+(d?'d':'')+'" data-act="wtoggle" data-id="'+esc(t.id)+'" aria-label="'+(d?'إرجاع':'تم الإنجاز')+'">'+(d?ico('check',20):'')+'</button><div class="main"><div class="t"'+(d?' style="text-decoration:line-through;opacity:.7"':'')+'>'+esc(t.title_ar||t.title)+'</div>'+(t.notes?'<div class="muted">'+esc(t.notes)+'</div>':'')+(due?'<div>'+due+'</div>':'')+'</div>'+(t.assignee_name?chip('info',t.assignee_name):'')+'</div>';
+    return '<div class="item"><button class="tick '+(d?'d':'')+'" data-act="wtoggle" data-id="'+esc(t.id)+'" aria-label="'+(d?'إرجاع':'تم الإنجاز')+'">'+(d?ico('check',20):'')+'</button><div class="main"><div class="t"'+(d?' style="text-decoration:line-through;opacity:.7"':'')+'>'+esc(t.title_ar||t.title)+'</div>'+((t.notes_ar||t.notes)?'<div class="muted">'+esc(t.notes_ar||t.notes)+'</div>':'')+(due?'<div>'+due+'</div>':'')+'</div>'+(t.assignee_name?chip('info',t.assignee_name):'')+'</div>';
   }
   h+='<div class="card pull stat"><div class="k">مهام مفتوحة</div><div class="v">'+open.length+'</div></div>';
   if(!pushOn()&&pushSupported())h+='<div class="card" style="margin-top:12px"><b>الإشعارات</b><div class="muted" style="margin:4px 0 8px">فعّل الإشعارات لتصلك المهام الجديدة.</div><button class="btn btn-accent" data-act="pushon">تفعيل الإشعارات</button><div class="muted" id="pushst" style="margin-top:6px"></div></div>';
   h+='<div class="filters" style="margin-top:12px"><button class="fchip" data-act="wmine" data-v="0" aria-pressed="'+(!WK.mine)+'">كل المهام</button><button class="fchip" data-act="wmine" data-v="1" aria-pressed="'+WK.mine+'">مهامي</button></div>';
-  h+='<div class="filters" style="margin-top:8px"><button class="fchip" data-act="wproj" data-id="" aria-pressed="'+(!WK.proj)+'">كل المشاريع</button>'+WK.projects.map(function(p){return '<button class="fchip" data-act="wproj" data-id="'+esc(p.id)+'" aria-pressed="'+(WK.proj===p.id)+'">'+esc(p.name)+'</button>';}).join('')+'</div>';
+  h+='<div class="filters" style="margin-top:8px"><button class="fchip" data-act="wproj" data-id="" aria-pressed="'+(!WK.proj)+'">كل المشاريع</button>'+WK.projects.map(function(p){return '<button class="fchip" data-act="wproj" data-id="'+esc(p.id)+'" aria-pressed="'+(WK.proj===p.id)+'">'+esc(p.name_ar||p.name)+'</button>';}).join('')+'</div>';
   var list=WK.projects.filter(function(p){return !WK.proj||p.id===WK.proj;}),any=false;
   list.forEach(function(p){
     var ts=open.filter(function(t){return t.project_id===p.id;}).sort(function(a,b){return String(a.due||'9999').localeCompare(String(b.due||'9999'));});
     if(!ts.length)return;any=true;
-    h+='<div class="sec"><h2>'+esc(p.name)+'</h2></div>'+(p.address?'<div class="muted" style="margin:-6px 0 8px">'+esc(p.address)+'</div>':'')+'<div class="stack">'+ts.map(row).join('')+'</div>';
+    h+='<div class="sec"><h2>'+esc(p.name_ar||p.name)+'</h2></div>'+(p.address?'<div class="muted" style="margin:-6px 0 8px">'+esc(p.address_ar||p.address)+'</div>':'')+'<div class="stack">'+ts.map(row).join('')+'</div>';
   });
   if(!any)h+=emptyBox('لا توجد مهام مفتوحة 👍');
   if(done.length){
@@ -945,13 +967,20 @@ async function submitForm(ev){
     data[f.k]=v;
   }
   if(form.e==='expense'&&data.pay==='לא צוין')data.pay=null;
-  var taskRemind=null,taskId=null,evId=null;
+  var taskRemind=null,taskId=null,evId=null,trId=null,trTable=null;
   if(form.e==='task'){
     taskRemind=data.remind;delete data.remind;
     var taskId=form.id||(window.crypto&&crypto.randomUUID?crypto.randomUUID():String(Date.now()));if(!form.id)data.id=taskId;
     var exT=form.id?byId('tasks',form.id):null;
+    var arManual=data.title_ar&&(!exT||data.title_ar!==(exT.title_ar||''));
+    if(!arManual&&(!exT||exT.title!==data.title||(exT.notes||'')!==(data.notes||'')||!exT.title_ar)){trId=taskId;trTable='tasks';}
     if(data.status==='הושלם'){if(!(exT&&exT.done_at))data.done_at=new Date().toISOString();}
     else if(exT&&exT.done_at)data.done_at=null;
+  }
+  if(form.e==='project'){
+    var exP=form.id?byId('projects',form.id):null;
+    if(!form.id){data.id=(window.crypto&&crypto.randomUUID?crypto.randomUUID():String(Date.now()));}
+    if(!exP||exP.name!==data.name||(exP.address||'')!==(data.address||'')||!exP.name_ar){trId=form.id||data.id;trTable='projects';}
   }
   if(form.e==='plan'){
     if(!form.id&&!form.file2){ferr('בחר קובץ.');return;}
@@ -998,6 +1027,7 @@ async function submitForm(ev){
     }
     var q=form.id?sb.from(cfg.col).update(toRow(data)).eq('id',form.id):sb.from(cfg.col).insert(toRow(data));
     var r=await q;if(r.error)throw r.error;
+    if(trId)translateRow(trTable,trId);
     if(form.e==='task'){
       var tw=null;
       if(data.due&&data.status!=='הושלם'&&taskRemind&&taskRemind!=='ללא'){
@@ -1141,6 +1171,7 @@ document.addEventListener('click',function(ev){
     sb.from('project_suppliers').delete().eq('project_id',UI.projectId).eq('supplier_id',id).then(function(){UI.projSup='';return loadTable('project_suppliers');});
   }
   else if(a==='savepsup'){savePsup();}
+  else if(a==='trall'){translateAll();}
   else if(a==='mytasks'){UI.taskPerson='me';UI.taskFilter='open';UI.view='tasks';window.scrollTo(0,0);render();}
   else if(a==='bell'){openBell();}
   else if(a==='reload'){location.reload();}

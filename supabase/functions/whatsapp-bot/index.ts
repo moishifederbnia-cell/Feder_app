@@ -121,6 +121,72 @@ async function identify(from: string): Promise<Ctx | null> {
   return { from, role, lang: role === "worker" ? "ar" : "he", member, name: member ? member.name : "", team: T };
 }
 
+// ---------- Arabic translation (spoken, simple) ----------
+const TR_TOOL = {
+  name: "tr",
+  description: "Return the Arabic translations.",
+  input_schema: {
+    type: "object",
+    properties: {
+      items: {
+        type: "array",
+        items: { type: "object", properties: { id: { type: "string" }, text_ar: { type: "string" }, extra_ar: { type: "string" } }, required: ["id", "text_ar"] },
+      },
+    },
+    required: ["items"],
+  },
+};
+async function translateItems(items: { id: string; text: string; extra?: string }[]): Promise<Record<string, { t: string; e: string }>> {
+  const out: Record<string, { t: string; e: string }> = {};
+  if (!AI_KEY || !items.length) return out;
+  const system = `תרגם מעברית לערבית מדוברת ופשוטה (ניב פלסטיני/ערבי-ישראלי יומיומי), בכתב ערבי, עבור פועלי בנייה בישראל.
+כללים: משפטים קצרים וטבעיים כמו שמדברים באתר בנייה, לא ערבית ספרותית גבוהה. שמות אנשים, שמות מקומות ושמות פרויקטים: תעתיק לאותיות ערביות (אל תתרגם משמעות). מספרים, תאריכים וכתובות: השאר מספרים כמו שהם.
+מילים נפוצות: בטון=باطون, טיח=لياسة, ריצוף=تبليط, חשמל=كهربا, חשמלאי=كهربائي, אינסטלציה=سباكة, שרברב=سبّاك, איטום=عزل, שלד=هيكل, צבע=دهان, גבס=جبس, ברזל=حديد, פינוי פסולת=ترحيل نفايات, להזמין=يطلب/يحجز, לשלם=يدفع, לבדוק=يفحص.
+אם הטקסט ריק, החזר מחרוזת ריקה. text_ar הוא תרגום text, extra_ar הוא תרגום extra (אם יש).`;
+  for (let i = 0; i < items.length; i += 30) {
+    const chunk = items.slice(i, i + 30);
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": AI_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: AI_MODEL, max_tokens: 4000, system, tools: [TR_TOOL], tool_choice: { type: "tool", name: "tr" },
+        messages: [{ role: "user", content: JSON.stringify(chunk.map((x) => ({ id: x.id, text: x.text || "", extra: x.extra || "" }))) }],
+      }),
+    });
+    if (!res.ok) continue;
+    const j = await res.json();
+    const tu = (j.content || []).find((x: any) => x.type === "tool_use");
+    for (const it of tu?.input?.items || []) out[String(it.id)] = { t: String(it.text_ar || "").trim(), e: String(it.extra_ar || "").trim() };
+  }
+  return out;
+}
+async function translateRows(table: "tasks" | "projects", rows: any[]): Promise<number> {
+  const items = rows.map((r) => (table === "tasks" ? { id: r.id, text: r.title, extra: r.notes } : { id: r.id, text: r.name, extra: r.address }));
+  const tr = await translateItems(items);
+  let n = 0;
+  for (const r of rows) {
+    const x = tr[r.id];
+    if (!x || !x.t) continue;
+    const patch = table === "tasks" ? { title_ar: x.t, notes_ar: x.e || null } : { name_ar: x.t, address_ar: x.e || null };
+    const { error } = await db.from(table).update(patch).eq("id", r.id);
+    if (!error) n++;
+  }
+  return n;
+}
+async function authStaff(req: Request): Promise<boolean> {
+  try {
+    const tok = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+    if (!tok) return false;
+    const { data } = await db.auth.getUser(tok);
+    const uid = data?.user?.id;
+    if (!uid) return false;
+    const { data: pr } = await db.from("profiles").select("role").eq("id", uid).maybeSingle();
+    return pr?.role === "admin" || pr?.role === "team";
+  } catch { return false; }
+}
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info", "Access-Control-Allow-Methods": "POST, GET, OPTIONS" };
+const jres = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+
 // ---------- AI ----------
 const STAFF_ACTIONS = [
   "add_task", "list_tasks", "complete_task", "reopen_task", "edit_task", "delete_task",
@@ -210,7 +276,7 @@ ${common}`;
 - complete_task / reopen_task: סגירה או פתיחה מחדש של משימה קיימת. title = מילים מזהות.
 - edit_task: שינוי משימה קיימת. title מזהה; new_title/new_title_ar, due, assignee_name לחדשים.
 - delete_task: מחיקת משימה. title מזהה.
-- add_expense: הוצאה או קבלה. בתמונת קבלה קרא סכום כולל (₪), עסק, תאריך, אמצעי תשלום. טקסט המשתמש גובר על התמונה.
+- add_expense: הוצאה או קבלה. בתמונת קבלה קרא סכום כולל (₪), עסק, תאריך ואמצעי תשלום. אמצעי תשלום: אם מופיעות ספרות כרטיס (למשל ****1234), VISA/Mastercard/ישראכרט/כאל/מקס/"אשראי"/"כרטיס"/אישור סליקה => אשראי; אם כתוב "מזומן" או "עודף" => מזומן; אחרת השאר ריק. טקסט המשתמש גובר על התמונה.
 - edit_expense / delete_expense: הוצאה קיימת. vendor ו/או amount מזהים, או last=true ל"האחרונה". לחדשים: new_amount, new_vendor, pay.
 - expense_summary: כמה הוצאנו. project_name אופציונלי, vendor אופציונלי, pay אופציונלי, period (week/month/all), group_by.
 - project_summary: מצב פרויקט (הוצאות ומשימות).
@@ -463,8 +529,11 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
       const name = String(a.project_name || a.title || "").trim();
       if (!name) return "מה שם הפרויקט החדש?";
       if (P.some((p: any) => norm(p.name) === norm(name))) return `פרויקט "${name}" כבר קיים.`;
-      const { error } = await db.from("projects").insert({ name, address: a.address || null, client_name: a.client_name || null, status: "בהתחלה" });
-      return error ? "לא הצלחתי ליצור את הפרויקט." : `נשמר ✓ פרויקט חדש: ${name}`;
+      const pid = crypto.randomUUID();
+      const { error } = await db.from("projects").insert({ id: pid, name, address: a.address || null, client_name: a.client_name || null, status: "בהתחלה" });
+      if (error) return "לא הצלחתי ליצור את הפרויקט.";
+      await translateRows("projects", [{ id: pid, name, address: a.address || null }]);
+      return `נשמר ✓ פרויקט חדש: ${name}`;
     }
     case "set_project_status": {
       if (!proj) return needProj;
@@ -688,8 +757,28 @@ Deno.serve(async (req) => {
     }
     return new Response("forbidden", { status: 403 });
   }
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   try {
     const body = await req.json();
+    if (body?.action === "translate" || body?.action === "backfill") {
+      if (!(await authStaff(req))) return jres({ ok: false, error: "unauthorized" }, 401);
+      if (body.action === "translate") {
+        const table = body.table === "projects" ? "projects" : "tasks";
+        const { data } = await db.from(table).select("*").eq("id", body.id);
+        const n = await translateRows(table, data || []);
+        return jres({ ok: true, translated: n });
+      }
+      let done = 0, remaining = 0;
+      const { data: pj } = await db.from("projects").select("id,name,address,name_ar");
+      const pTodo = (pj || []).filter((x: any) => !x.name_ar);
+      done += await translateRows("projects", pTodo.slice(0, 30));
+      remaining += Math.max(0, pTodo.length - 30);
+      const { data: tk } = await db.from("tasks").select("id,title,notes,title_ar").limit(1000);
+      const tTodo = (tk || []).filter((x: any) => !x.title_ar);
+      done += await translateRows("tasks", tTodo.slice(0, 60));
+      remaining += Math.max(0, tTodo.length - 60);
+      return jres({ ok: true, translated: done, remaining });
+    }
     const msgs = body?.entry?.[0]?.changes?.[0]?.value?.messages || [];
     if (msgs.length) {
       const job = processMessages(msgs);
@@ -698,5 +787,5 @@ Deno.serve(async (req) => {
       else await job;
     }
   } catch (_e) { /* always 200 to Meta */ }
-  return new Response("ok");
+  return new Response("ok", { headers: CORS });
 });

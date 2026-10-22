@@ -1,3 +1,65 @@
+    // ----- expenses -----
+    case "add_expense": {
+      if (!proj) return needProj;
+      const amount = Number(a.amount);
+      if (!isFinite(amount) || amount <= 0) return "לא הצלחתי לקרוא סכום. כתוב אותו בהודעה, למשל: 350 חשמל בנימין " + proj.name;
+      const pay = a.pay === "מזומן" || a.pay === "אשראי" ? a.pay : null;
+      const vendor = String(a.vendor || "").trim() || "ללא ספק";
+      const date = DATE_RE.test(a.date || "") ? a.date : ymd(il());
+      const { error } = await db.from("expenses").insert({ project_id: proj.id, vendor, amount, pay, photo: mediaPath, date, note: a.note || null });
+      if (error) return "לא הצלחתי לשמור את ההוצאה.";
+      return `נשמר ✓ הוצאה ב"${proj.name}": ${vendor} ${num(amount)} ₪${pay ? " · " + pay : ""}${mediaPath ? " · עם קבלה" : ""}`;
+    }
+    case "edit_expense":
+    case "delete_expense": {
+      let q = db.from("expenses").select("id,vendor,amount,date,project_id,pay").order("created_at", { ascending: false });
+      if (proj && a.project_name) q = q.eq("project_id", proj.id);
+      const { data } = await q.limit(60);
+      let hits = (data || []).filter((x: any) =>
+        (!a.vendor || norm(x.vendor).includes(norm(a.vendor)) || norm(a.vendor).includes(norm(x.vendor))) &&
+        (!a.amount || Number(x.amount) === Number(a.amount)));
+      if (a.last) hits = hits.slice(0, 1);
+      if (!hits.length) return "לא מצאתי הוצאה כזאת.";
+      if (hits.length > 1) return "מצאתי כמה הוצאות:\n" + hits.slice(0, 6).map((x: any) => `• ${x.vendor} ${num(x.amount)} ₪ · ${fmtD(x.date)} (${pNames[x.project_id] || ""})`).join("\n") + "\nכתוב סכום או ספק מדויק, או 'האחרונה'.";
+      const x = hits[0]; const lbl = `${x.vendor} ${num(x.amount)} ₪ (${pNames[x.project_id] || ""})`;
+      if (a.action === "delete_expense") {
+        await savePending(c.from, { kind: "delete_expense", id: x.id, label: `ההוצאה ${lbl}` });
+        return `למחוק את ההוצאה ${lbl}?\nכתוב "כן" לאישור.`;
+      }
+      const patch: any = {}; const parts: string[] = [];
+      if (a.new_amount) { patch.amount = Number(a.new_amount); parts.push(`סכום ${num(a.new_amount)} ₪`); }
+      if (a.new_vendor) { patch.vendor = a.new_vendor; parts.push(`ספק ${a.new_vendor}`); }
+      if (a.pay === "מזומן" || a.pay === "אשראי") { patch.pay = a.pay; parts.push(a.pay); }
+      if (!parts.length) return "מה לשנות בהוצאה? (סכום, ספק או אמצעי תשלום)";
+      await savePending(c.from, { kind: "edit_expense", id: x.id, patch, label: `ההוצאה ${lbl} → ${parts.join(", ")}` });
+      return `לעדכן את ההוצאה ${lbl} ל: ${parts.join(", ")}?\nכתוב "כן" לאישור.`;
+    }
+    case "expense_summary": {
+      let q = db.from("expenses").select("amount,pay,vendor,date,project_id");
+      if (proj && a.project_name) q = q.eq("project_id", proj.id);
+      const today = ymd(il());
+      if (a.period === "month") q = q.gte("date", today.slice(0, 8) + "01");
+      else if (a.period === "week") q = q.gte("date", addDays(today, -7));
+      const { data } = await q.limit(2000);
+      let rows = data || [];
+      if (a.vendor) rows = rows.filter((x: any) => norm(x.vendor).includes(norm(a.vendor)));
+      if (a.pay === "מזומן" || a.pay === "אשראי") rows = rows.filter((x: any) => x.pay === a.pay);
+      const total = rows.reduce((s: number, x: any) => s + (Number(x.amount) || 0), 0);
+      const by = (f: (x: any) => string) => { const m: Record<string, number> = {}; rows.forEach((x: any) => { const k = f(x) || "ללא"; m[k] = (m[k] || 0) + (Number(x.amount) || 0); }); return Object.entries(m).sort((p, q) => q[1] - p[1]).slice(0, 8).map(([k, v]) => `• ${k}: ${num(v)} ₪`).join("\n"); };
+      const per = a.period === "week" ? " בשבוע האחרון" : a.period === "month" ? " החודש" : "";
+      let out = `הוצאות${proj && a.project_name ? " ב\"" + proj.name + "\"" : ""}${a.vendor ? " ל" + a.vendor : ""}${per}: ${num(total)} ₪ (${rows.length} הוצאות)`;
+      const cash = rows.filter((x: any) => x.pay === "מזומן").reduce((s: number, x: any) => s + Number(x.amount || 0), 0);
+      const card = rows.filter((x: any) => x.pay === "אשראי").reduce((s: number, x: any) => s + Number(x.amount || 0), 0);
+      out += `\nמזומן ${num(cash)} ₪ · אשראי ${num(card)} ₪`;
+      if (a.group_by === "vendor" || (!a.vendor && rows.length > 1 && a.group_by !== "none")) out += "\n\nלפי ספק:\n" + by((x) => x.vendor);
+      if (!(proj && a.project_name) && a.group_by !== "none") out += "\n\nלפי פרויקט:\n" + by((x) => pNames[x.project_id]);
+      return out;
+    }
+    case "project_summary": {
+      if (!proj) return needProj;
+      const { data: ex } = await db.from("expenses").select("amount,pay").eq("project_id", proj.id);
+      const { data: tk } = await db.from("tasks").select("status").eq("project_id", proj.id);
+      const { data: od } = await db.from("orders").select("status").eq("project_id", proj.id);
       const total = (ex || []).reduce((s: number, x: any) => s + (Number(x.amount) || 0), 0);
       const sumBy = (p: string) => (ex || []).filter((x: any) => x.pay === p).reduce((s: number, x: any) => s + (Number(x.amount) || 0), 0);
       const done = (tk || []).filter((t: any) => t.status === "הושלם").length;
@@ -9,8 +71,11 @@
       const name = String(a.project_name || a.title || "").trim();
       if (!name) return "מה שם הפרויקט החדש?";
       if (P.some((p: any) => norm(p.name) === norm(name))) return `פרויקט "${name}" כבר קיים.`;
-      const { error } = await db.from("projects").insert({ name, address: a.address || null, client_name: a.client_name || null, status: "בהתחלה" });
-      return error ? "לא הצלחתי ליצור את הפרויקט." : `נשמר ✓ פרויקט חדש: ${name}`;
+      const pid = crypto.randomUUID();
+      const { error } = await db.from("projects").insert({ id: pid, name, address: a.address || null, client_name: a.client_name || null, status: "בהתחלה" });
+      if (error) return "לא הצלחתי ליצור את הפרויקט.";
+      await translateRows("projects", [{ id: pid, name, address: a.address || null }]);
+      return `נשמר ✓ פרויקט חדש: ${name}`;
     }
     case "set_project_status": {
       if (!proj) return needProj;
@@ -126,123 +191,3 @@
       const scope = a.scope || "today";
       const from = scope === "tomorrow" ? addDays(today, 1) : today;
       const to = scope === "today" ? today : scope === "tomorrow" ? addDays(today, 1) : addDays(today, 7);
-      const { data } = await db.from("events").select("title,start_at,all_day,location").gte("start_at", ilToUtc(from, "00:00")).lt("start_at", ilToUtc(addDays(to, 1), "00:00")).order("start_at", { ascending: true }).limit(25);
-      if (!data?.length) return "אין אירועים ביומן בתקופה הזאת.\n(מוצגים רק אירועים שנשמרו באפליקציה/בבוט, לא כל יומן גוגל.)";
-      return "ביומן:\n" + data.map((e: any) => {
-        const dt = new Date(new Date(e.start_at).toLocaleString("en-US", { timeZone: "Asia/Jerusalem" }));
-        return `• ${fmtD(ymd(dt))}${e.all_day ? "" : " " + String(dt.getHours()).padStart(2, "0") + ":" + String(dt.getMinutes()).padStart(2, "0")} ${e.title}${e.location ? " · " + e.location : ""}`;
-      }).join("\n");
-    }
-    default:
-      return a.reply || helpText(c);
-  }
-}
-
-async function supplierByName(name: string) {
-  const k = norm(name);
-  if (!k) return null;
-  const { data } = await db.from("suppliers").select("id,name");
-  const L2 = data || [];
-  return L2.find((s: any) => norm(s.name) === k) || L2.find((s: any) => norm(s.name).includes(k) || k.includes(norm(s.name))) || null;
-}
-
-function helpText(c: Ctx) {
-  if (c.role === "worker") return "أنا مساعد فيدر للبناء. يمكنك:\n• \"مهامي\" لعرض مهامك\n• \"أنهيت مهمة الخرسانة\"\n• إرسال صورة أو فيديو مع اسم المشروع كتوثيق";
-  return `אני הבוט של פדר בניה. אפשר לכתוב חופשי, למשל:
-• משימה בנוף: להזמין בטון מחר, ואבו יאסר יפנה את הפסולת
-• איזה משימות יש לי היום / מה באיחור / מה פתוח אצל אמיתי
-• סגור את משימת הבטון / מחק משימה / תשייך את הבטון לאבי
-• 350 חשמל בנימין הנוף אשראי (או שלח תמונת קבלה)
-• כמה הוצאנו בנוף החודש / הוצאות לבנימין
-• תיעוד: תמונה או וידאו עם "הנוף חשמל"
-• תעודת משלוח: תמונה עם "תעודת משלוח בנימין הנוף"
-• הזמנה בנוף: ברזל / הברזל הגיע
-• טלפון של בנימין / ספק חדש...
-• פגישה מחר ב-10 בנוף עם הלקוח / מה ביומן
-מחיקה ועריכה תמיד מחכות לאישור "כן".`;
-}
-
-// ---------- rule fallback (no AI key / AI failed) ----------
-async function handleRules(c: Ctx, text: string, mediaPath: string | null): Promise<string> {
-  if (c.role === "worker") return "المساعد غير متاح الآن، حاول لاحقاً.";
-  const { data: pr } = await db.from("projects").select("id,name");
-  const P = pr || [];
-  const proj = matchProject("", text, P);
-  const lead = text.trim().split(/\s+/)[0];
-  if (lead === "משימה" && proj) {
-    const title = text.replace(/^\s*משימה/, "").replace(new RegExp(proj.name, "i"), "").replace(/[:：]/g, " ").replace(/\s+/g, " ").trim();
-    if (!title) return "חסר תיאור למשימה.";
-    const { error } = await db.from("tasks").insert({ project_id: proj.id, title, status: "לביצוע" });
-    return error ? "לא הצלחתי לשמור." : `נשמר ✓ משימה ב"${proj.name}": ${title}`;
-  }
-  return helpText(c) + "\n(הבינה המלאכותית לא זמינה כרגע, נסה שוב.)";
-}
-
-// ---------- routing ----------
-async function route(c: Ctx, text: string, media: { id: string; video: boolean } | null): Promise<string> {
-  const t = text.trim();
-  // confirmations
-  if (c.role === "staff") {
-    if (YES.test(t) || NO.test(t)) {
-      const p = await takePending(c.from);
-      if (p) return YES.test(t) ? await execPending(p, c) : "בוטל.";
-      if (YES.test(t)) return "אין פעולה שממתינה לאישור.";
-    } else {
-      try { await db.from("bot_pending").delete().eq("phone", c.from); } catch (_e) { /* ignore */ }
-    }
-  }
-  let m: { buf: Uint8Array; mime: string } | null = null;
-  let path: string | null = null;
-  if (media) {
-    m = await downloadMedia(media.id);
-    if (m) path = await uploadMedia(m.buf, m.mime);
-    if (!path) return L(c, "לא הצלחתי לקבל את הקובץ. נסה שוב.", "تعذّر استلام الملف، حاول مرة أخرى.");
-  }
-  if (AI_KEY) {
-    try { return await handleAI(c, t, m, !!media?.video, path); } catch (_e) { /* fall back */ }
-  }
-  return await handleRules(c, t, path);
-}
-
-// ---------- webhook ----------
-async function processMessages(msgs: any[]) {
-  for (const m of msgs) {
-    const from = String(m.from || "").replace(/\D/g, "");
-    try {
-      // de-duplicate Meta retries
-      const seen = await db.from("bot_seen").insert({ id: m.id });
-      if (seen.error && (seen.error as any).code === "23505") continue;
-      const c = await identify(from);
-      if (!c) continue;
-      let out = helpText(c);
-      if (m.type === "text") out = await route(c, m.text?.body || "", null);
-      else if (m.type === "image") out = await route(c, m.image?.caption || "", { id: m.image.id, video: false });
-      else if (m.type === "video") out = await route(c, m.video?.caption || "", { id: m.video.id, video: true });
-      else out = L(c, "אני מבין טקסט, תמונות ווידאו בלבד.", "أفهم النصوص والصور والفيديو فقط.");
-      await reply(from, out);
-    } catch (_e) {
-      try { await reply(from, "משהו השתבש, נסה שוב."); } catch (_e2) { /* ignore */ }
-    }
-  }
-}
-
-Deno.serve(async (req) => {
-  const url = new URL(req.url);
-  if (req.method === "GET") {
-    if (url.searchParams.get("hub.mode") === "subscribe" && url.searchParams.get("hub.verify_token") === Deno.env.get("WA_VERIFY_TOKEN")) {
-      return new Response(url.searchParams.get("hub.challenge") || "");
-    }
-    return new Response("forbidden", { status: 403 });
-  }
-  try {
-    const body = await req.json();
-    const msgs = body?.entry?.[0]?.changes?.[0]?.value?.messages || [];
-    if (msgs.length) {
-      const job = processMessages(msgs);
-      // @ts-ignore EdgeRuntime exists on Supabase
-      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) EdgeRuntime.waitUntil(job);
-      else await job;
-    }
-  } catch (_e) { /* always 200 to Meta */ }
-  return new Response("ok");
-});

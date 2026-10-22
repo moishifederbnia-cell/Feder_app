@@ -1,0 +1,140 @@
+      const { data } = await db.from("events").select("title,start_at,all_day,location").gte("start_at", ilToUtc(from, "00:00")).lt("start_at", ilToUtc(addDays(to, 1), "00:00")).order("start_at", { ascending: true }).limit(25);
+      if (!data?.length) return "אין אירועים ביומן בתקופה הזאת.\n(מוצגים רק אירועים שנשמרו באפליקציה/בבוט, לא כל יומן גוגל.)";
+      return "ביומן:\n" + data.map((e: any) => {
+        const dt = new Date(new Date(e.start_at).toLocaleString("en-US", { timeZone: "Asia/Jerusalem" }));
+        return `• ${fmtD(ymd(dt))}${e.all_day ? "" : " " + String(dt.getHours()).padStart(2, "0") + ":" + String(dt.getMinutes()).padStart(2, "0")} ${e.title}${e.location ? " · " + e.location : ""}`;
+      }).join("\n");
+    }
+    default:
+      return a.reply || helpText(c);
+  }
+}
+
+async function supplierByName(name: string) {
+  const k = norm(name);
+  if (!k) return null;
+  const { data } = await db.from("suppliers").select("id,name");
+  const L2 = data || [];
+  return L2.find((s: any) => norm(s.name) === k) || L2.find((s: any) => norm(s.name).includes(k) || k.includes(norm(s.name))) || null;
+}
+
+function helpText(c: Ctx) {
+  if (c.role === "worker") return "أنا مساعد فيدر للبناء. يمكنك:\n• \"مهامي\" لعرض مهامك\n• \"أنهيت مهمة الخرسانة\"\n• إرسال صورة أو فيديو مع اسم المشروع كتوثيق";
+  return `אני הבוט של פדר בניה. אפשר לכתוב חופשי, למשל:
+• משימה בנוף: להזמין בטון מחר, ואבו יאסר יפנה את הפסולת
+• איזה משימות יש לי היום / מה באיחור / מה פתוח אצל אמיתי
+• סגור את משימת הבטון / מחק משימה / תשייך את הבטון לאבי
+• 350 חשמל בנימין הנוף אשראי (או שלח תמונת קבלה)
+• כמה הוצאנו בנוף החודש / הוצאות לבנימין
+• תיעוד: תמונה או וידאו עם "הנוף חשמל"
+• תעודת משלוח: תמונה עם "תעודת משלוח בנימין הנוף"
+• הזמנה בנוף: ברזל / הברזל הגיע
+• טלפון של בנימין / ספק חדש...
+• פגישה מחר ב-10 בנוף עם הלקוח / מה ביומן
+מחיקה ועריכה תמיד מחכות לאישור "כן".`;
+}
+
+// ---------- rule fallback (no AI key / AI failed) ----------
+async function handleRules(c: Ctx, text: string, mediaPath: string | null): Promise<string> {
+  if (c.role === "worker") return "المساعد غير متاح الآن، حاول لاحقاً.";
+  const { data: pr } = await db.from("projects").select("id,name");
+  const P = pr || [];
+  const proj = matchProject("", text, P);
+  const lead = text.trim().split(/\s+/)[0];
+  if (lead === "משימה" && proj) {
+    const title = text.replace(/^\s*משימה/, "").replace(new RegExp(proj.name, "i"), "").replace(/[:：]/g, " ").replace(/\s+/g, " ").trim();
+    if (!title) return "חסר תיאור למשימה.";
+    const { error } = await db.from("tasks").insert({ project_id: proj.id, title, status: "לביצוע" });
+    return error ? "לא הצלחתי לשמור." : `נשמר ✓ משימה ב"${proj.name}": ${title}`;
+  }
+  return helpText(c) + "\n(הבינה המלאכותית לא זמינה כרגע, נסה שוב.)";
+}
+
+// ---------- routing ----------
+async function route(c: Ctx, text: string, media: { id: string; video: boolean } | null): Promise<string> {
+  const t = text.trim();
+  // confirmations
+  if (c.role === "staff") {
+    if (YES.test(t) || NO.test(t)) {
+      const p = await takePending(c.from);
+      if (p) return YES.test(t) ? await execPending(p, c) : "בוטל.";
+      if (YES.test(t)) return "אין פעולה שממתינה לאישור.";
+    } else {
+      try { await db.from("bot_pending").delete().eq("phone", c.from); } catch (_e) { /* ignore */ }
+    }
+  }
+  let m: { buf: Uint8Array; mime: string } | null = null;
+  let path: string | null = null;
+  if (media) {
+    m = await downloadMedia(media.id);
+    if (m) path = await uploadMedia(m.buf, m.mime);
+    if (!path) return L(c, "לא הצלחתי לקבל את הקובץ. נסה שוב.", "تعذّر استلام الملف، حاول مرة أخرى.");
+  }
+  if (AI_KEY) {
+    try { return await handleAI(c, t, m, !!media?.video, path); } catch (_e) { /* fall back */ }
+  }
+  return await handleRules(c, t, path);
+}
+
+// ---------- webhook ----------
+async function processMessages(msgs: any[]) {
+  for (const m of msgs) {
+    const from = String(m.from || "").replace(/\D/g, "");
+    try {
+      // de-duplicate Meta retries
+      const seen = await db.from("bot_seen").insert({ id: m.id });
+      if (seen.error && (seen.error as any).code === "23505") continue;
+      const c = await identify(from);
+      if (!c) continue;
+      let out = helpText(c);
+      if (m.type === "text") out = await route(c, m.text?.body || "", null);
+      else if (m.type === "image") out = await route(c, m.image?.caption || "", { id: m.image.id, video: false });
+      else if (m.type === "video") out = await route(c, m.video?.caption || "", { id: m.video.id, video: true });
+      else out = L(c, "אני מבין טקסט, תמונות ווידאו בלבד.", "أفهم النصوص والصور والفيديو فقط.");
+      await reply(from, out);
+    } catch (_e) {
+      try { await reply(from, "משהו השתבש, נסה שוב."); } catch (_e2) { /* ignore */ }
+    }
+  }
+}
+
+Deno.serve(async (req) => {
+  const url = new URL(req.url);
+  if (req.method === "GET") {
+    if (url.searchParams.get("hub.mode") === "subscribe" && url.searchParams.get("hub.verify_token") === Deno.env.get("WA_VERIFY_TOKEN")) {
+      return new Response(url.searchParams.get("hub.challenge") || "");
+    }
+    return new Response("forbidden", { status: 403 });
+  }
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
+  try {
+    const body = await req.json();
+    if (body?.action === "translate" || body?.action === "backfill") {
+      if (!(await authStaff(req))) return jres({ ok: false, error: "unauthorized" }, 401);
+      if (body.action === "translate") {
+        const table = body.table === "projects" ? "projects" : "tasks";
+        const { data } = await db.from(table).select("*").eq("id", body.id);
+        const n = await translateRows(table, data || []);
+        return jres({ ok: true, translated: n });
+      }
+      let done = 0, remaining = 0;
+      const { data: pj } = await db.from("projects").select("id,name,address,name_ar");
+      const pTodo = (pj || []).filter((x: any) => !x.name_ar);
+      done += await translateRows("projects", pTodo.slice(0, 30));
+      remaining += Math.max(0, pTodo.length - 30);
+      const { data: tk } = await db.from("tasks").select("id,title,notes,title_ar").limit(1000);
+      const tTodo = (tk || []).filter((x: any) => !x.title_ar);
+      done += await translateRows("tasks", tTodo.slice(0, 60));
+      remaining += Math.max(0, tTodo.length - 60);
+      return jres({ ok: true, translated: done, remaining });
+    }
+    const msgs = body?.entry?.[0]?.changes?.[0]?.value?.messages || [];
+    if (msgs.length) {
+      const job = processMessages(msgs);
+      // @ts-ignore EdgeRuntime exists on Supabase
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) EdgeRuntime.waitUntil(job);
+      else await job;
+    }
+  } catch (_e) { /* always 200 to Meta */ }
+  return new Response("ok", { headers: CORS });
+});

@@ -121,6 +121,72 @@ async function identify(from: string): Promise<Ctx | null> {
   return { from, role, lang: role === "worker" ? "ar" : "he", member, name: member ? member.name : "", team: T };
 }
 
+// ---------- Arabic translation (spoken, simple) ----------
+const TR_TOOL = {
+  name: "tr",
+  description: "Return the Arabic translations.",
+  input_schema: {
+    type: "object",
+    properties: {
+      items: {
+        type: "array",
+        items: { type: "object", properties: { id: { type: "string" }, text_ar: { type: "string" }, extra_ar: { type: "string" } }, required: ["id", "text_ar"] },
+      },
+    },
+    required: ["items"],
+  },
+};
+async function translateItems(items: { id: string; text: string; extra?: string }[]): Promise<Record<string, { t: string; e: string }>> {
+  const out: Record<string, { t: string; e: string }> = {};
+  if (!AI_KEY || !items.length) return out;
+  const system = `תרגם מעברית לערבית מדוברת ופשוטה (ניב פלסטיני/ערבי-ישראלי יומיומי), בכתב ערבי, עבור פועלי בנייה בישראל.
+כללים: משפטים קצרים וטבעיים כמו שמדברים באתר בנייה, לא ערבית ספרותית גבוהה. שמות אנשים, שמות מקומות ושמות פרויקטים: תעתיק לאותיות ערביות (אל תתרגם משמעות). מספרים, תאריכים וכתובות: השאר מספרים כמו שהם.
+מילים נפוצות: בטון=باطون, טיח=لياسة, ריצוף=تبليط, חשמל=كهربا, חשמלאי=كهربائي, אינסטלציה=سباكة, שרברב=سبّاك, איטום=عزل, שלד=هيكل, צבע=دهان, גבס=جبس, ברזל=حديد, פינוי פסולת=ترحيل نفايات, להזמין=يطلب/يحجز, לשלם=يدفع, לבדוק=يفحص.
+אם הטקסט ריק, החזר מחרוזת ריקה. text_ar הוא תרגום text, extra_ar הוא תרגום extra (אם יש).`;
+  for (let i = 0; i < items.length; i += 30) {
+    const chunk = items.slice(i, i + 30);
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": AI_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: AI_MODEL, max_tokens: 4000, system, tools: [TR_TOOL], tool_choice: { type: "tool", name: "tr" },
+        messages: [{ role: "user", content: JSON.stringify(chunk.map((x) => ({ id: x.id, text: x.text || "", extra: x.extra || "" }))) }],
+      }),
+    });
+    if (!res.ok) continue;
+    const j = await res.json();
+    const tu = (j.content || []).find((x: any) => x.type === "tool_use");
+    for (const it of tu?.input?.items || []) out[String(it.id)] = { t: String(it.text_ar || "").trim(), e: String(it.extra_ar || "").trim() };
+  }
+  return out;
+}
+async function translateRows(table: "tasks" | "projects", rows: any[]): Promise<number> {
+  const items = rows.map((r) => (table === "tasks" ? { id: r.id, text: r.title, extra: r.notes } : { id: r.id, text: r.name, extra: r.address }));
+  const tr = await translateItems(items);
+  let n = 0;
+  for (const r of rows) {
+    const x = tr[r.id];
+    if (!x || !x.t) continue;
+    const patch = table === "tasks" ? { title_ar: x.t, notes_ar: x.e || null } : { name_ar: x.t, address_ar: x.e || null };
+    const { error } = await db.from(table).update(patch).eq("id", r.id);
+    if (!error) n++;
+  }
+  return n;
+}
+async function authStaff(req: Request): Promise<boolean> {
+  try {
+    const tok = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
+    if (!tok) return false;
+    const { data } = await db.auth.getUser(tok);
+    const uid = data?.user?.id;
+    if (!uid) return false;
+    const { data: pr } = await db.from("profiles").select("role").eq("id", uid).maybeSingle();
+    return pr?.role === "admin" || pr?.role === "team";
+  } catch { return false; }
+}
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info", "Access-Control-Allow-Methods": "POST, GET, OPTIONS" };
+const jres = (o: unknown, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...CORS, "Content-Type": "application/json" } });
+
 // ---------- AI ----------
 const STAFF_ACTIONS = [
   "add_task", "list_tasks", "complete_task", "reopen_task", "edit_task", "delete_task",
@@ -180,61 +246,3 @@ function actTool(actions: string[]) {
         group_by: { type: "string", enum: ["vendor", "pay", "none"], description: "expense_summary grouping" },
         period: { type: "string", enum: ["week", "month", "all"], description: "expense_summary period" },
         address: { type: "string" }, client_name: { type: "string" },
-        reply: { type: "string", description: "For action=chat: short answer or a question asking for the missing detail" },
-      },
-      required: ["action"],
-    },
-  };
-}
-
-function systemPrompt(c: Ctx, projects: any[]) {
-  const d = il();
-  const wd = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"][d.getDay()];
-  const team = c.team.map((m) => m.name + (m.name_ar ? ` (${m.name_ar})` : "")).join(" | ");
-  const common = `היום: ${ymd(d)} (יום ${wd}), שעון ישראל. חשב תאריכים יחסיים ("מחר", "יום ראשון הבא", "בעוד שבוע") לפי היום.
-פרויקטים: ${projects.map((p) => p.name).join(" | ") || "(אין)"}.
-אנשי צוות: ${team || "(אין)"}.
-project_name חייב להיות אחד מהשמות ברשימה בדיוק, או ריק אם לא ברור. בחר פעולה אחת בלבד.`;
-  if (c.role === "worker") {
-    return `אתה עוזר בוואטסאפ של חברת בנייה (פדר בניה) שמדבר עם פועל שטח בשם ${c.name || "הפועל"}. הוא כותב בערבית או בעברית.
-הוא מורשה רק: לראות משימות (list_tasks), לסגור משימה (complete_task) או לפתוח מחדש (reopen_task), לשלוח תיעוד של עבודה בתמונה או וידאו (add_doc), או לשאול שאלה כללית (chat).
-אסור לו לראות או לשנות כסף, הוצאות, ספקים או תקציבים. אם ביקש משהו כזה, action=chat עם reply בערבית: "هذا غير متاح لك".
-"مهامي"/"שלי" => mine=true. בתיעוד: כתוב title ו-note בעברית (תרגם מערבית), stage אם ברור.
-כשאתה כותב reply בערבית, השתמש בערבית פשוטה וברורה.
-${common}`;
-  }
-  return `אתה עוזר של מנהל עבודה בחברת בנייה (פדר בניה). הוא כותב לך בעברית קצרה מהשטח, לפעמים עם תמונת קבלה או תיעוד.
-בחר את הפעולה והמלא פרטים:
-- add_task: משימה חדשה (אפשר כמה, ב-tasks). לכל משימה: title בעברית, title_ar תרגום לערבית, due אם צוין, assignee אם שייך לאדם מהצוות ("תן לאבו יאסר...", "אמיתי ידאג ל...").
-- list_tasks: מה יש/פתוח/באיחור/להיום. scope: today (להיום, כולל באיחור), tomorrow, week, overdue, open, done. assignee_name אם שאל על אדם. mine=true אם שאל "מה יש לי".
-- complete_task / reopen_task: סגירה או פתיחה מחדש של משימה קיימת. title = מילים מזהות.
-- edit_task: שינוי משימה קיימת. title מזהה; new_title/new_title_ar, due, assignee_name לחדשים.
-- delete_task: מחיקת משימה. title מזהה.
-- add_expense: הוצאה או קבלה. בתמונת קבלה קרא סכום כולל (₪), עסק, תאריך, אמצעי תשלום. טקסט המשתמש גובר על התמונה.
-- edit_expense / delete_expense: הוצאה קיימת. vendor ו/או amount מזהים, או last=true ל"האחרונה". לחדשים: new_amount, new_vendor, pay.
-- expense_summary: כמה הוצאנו. project_name אופציונלי, vendor אופציונלי, pay אופציונלי, period (week/month/all), group_by.
-- project_summary: מצב פרויקט (הוצאות ומשימות).
-- create_project: פרויקט חדש (project_name = שם חדש, address, client_name). set_project_status: status אחד מ: בהתחלה, בביצוע, סיום.
-- find_supplier: טלפון/פרטי ספק (supplier_name). add_supplier: ספק חדש. link_supplier: שיוך ספק לפרויקט.
-- add_order: הזמנת חומר (item, supplier_name אופציונלי, status). update_order: item מזהה + status חדש. list_orders: הזמנות פתוחות.
-- add_doc: תיעוד עבודה באתר (תמונה או וידאו שאינם קבלה). title קצר, stage אם ברור.
-- add_supplier_doc: תעודת משלוח או תיעוד שקשור לספק (supplier_name, kind).
-- add_event: פגישה/אירוע ביומן. title, due=התאריך (YYYY-MM-DD), time (HH:MM) אם יש, location, remind_minutes.
-- list_events: מה ביומן. scope today/tomorrow/week.
-- chat: כל דבר אחר או כשחסר פרט הכרחי. ב-reply משפט קצר בעברית ושאלה על מה שחסר.
-${common}`;
-}
-
-async function aiParse(c: Ctx, text: string, media: { buf: Uint8Array; mime: string } | null, isVideo: boolean, projects: any[]) {
-  const content: any[] = [];
-  if (media && !isVideo) content.push({ type: "image", source: { type: "base64", media_type: media.mime, data: b64(media.buf) } });
-  content.push({ type: "text", text: (text || "") + (isVideo ? "\n(נשלח וידאו)" : "") || "(תמונה בלי טקסט)" });
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": AI_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({
-      model: AI_MODEL, max_tokens: 900, system: systemPrompt(c, projects),
-      tools: [actTool(c.role === "worker" ? WORKER_ACTIONS : STAFF_ACTIONS)], tool_choice: { type: "tool", name: "act" },
-      messages: [{ role: "user", content }],
-    }),
-  });

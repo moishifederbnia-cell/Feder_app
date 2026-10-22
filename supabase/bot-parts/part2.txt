@@ -1,3 +1,61 @@
+        reply: { type: "string", description: "For action=chat: short answer or a question asking for the missing detail" },
+      },
+      required: ["action"],
+    },
+  };
+}
+
+function systemPrompt(c: Ctx, projects: any[]) {
+  const d = il();
+  const wd = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"][d.getDay()];
+  const team = c.team.map((m) => m.name + (m.name_ar ? ` (${m.name_ar})` : "")).join(" | ");
+  const common = `היום: ${ymd(d)} (יום ${wd}), שעון ישראל. חשב תאריכים יחסיים ("מחר", "יום ראשון הבא", "בעוד שבוע") לפי היום.
+פרויקטים: ${projects.map((p) => p.name).join(" | ") || "(אין)"}.
+אנשי צוות: ${team || "(אין)"}.
+project_name חייב להיות אחד מהשמות ברשימה בדיוק, או ריק אם לא ברור. בחר פעולה אחת בלבד.`;
+  if (c.role === "worker") {
+    return `אתה עוזר בוואטסאפ של חברת בנייה (פדר בניה) שמדבר עם פועל שטח בשם ${c.name || "הפועל"}. הוא כותב בערבית או בעברית.
+הוא מורשה רק: לראות משימות (list_tasks), לסגור משימה (complete_task) או לפתוח מחדש (reopen_task), לשלוח תיעוד של עבודה בתמונה או וידאו (add_doc), או לשאול שאלה כללית (chat).
+אסור לו לראות או לשנות כסף, הוצאות, ספקים או תקציבים. אם ביקש משהו כזה, action=chat עם reply בערבית: "هذا غير متاح لك".
+"مهامي"/"שלי" => mine=true. בתיעוד: כתוב title ו-note בעברית (תרגם מערבית), stage אם ברור.
+כשאתה כותב reply בערבית, השתמש בערבית פשוטה וברורה.
+${common}`;
+  }
+  return `אתה עוזר של מנהל עבודה בחברת בנייה (פדר בניה). הוא כותב לך בעברית קצרה מהשטח, לפעמים עם תמונת קבלה או תיעוד.
+בחר את הפעולה והמלא פרטים:
+- add_task: משימה חדשה (אפשר כמה, ב-tasks). לכל משימה: title בעברית, title_ar תרגום לערבית, due אם צוין, assignee אם שייך לאדם מהצוות ("תן לאבו יאסר...", "אמיתי ידאג ל...").
+- list_tasks: מה יש/פתוח/באיחור/להיום. scope: today (להיום, כולל באיחור), tomorrow, week, overdue, open, done. assignee_name אם שאל על אדם. mine=true אם שאל "מה יש לי".
+- complete_task / reopen_task: סגירה או פתיחה מחדש של משימה קיימת. title = מילים מזהות.
+- edit_task: שינוי משימה קיימת. title מזהה; new_title/new_title_ar, due, assignee_name לחדשים.
+- delete_task: מחיקת משימה. title מזהה.
+- add_expense: הוצאה או קבלה. בתמונת קבלה קרא סכום כולל (₪), עסק, תאריך ואמצעי תשלום. אמצעי תשלום: אם מופיעות ספרות כרטיס (למשל ****1234), VISA/Mastercard/ישראכרט/כאל/מקס/"אשראי"/"כרטיס"/אישור סליקה => אשראי; אם כתוב "מזומן" או "עודף" => מזומן; אחרת השאר ריק. טקסט המשתמש גובר על התמונה.
+- edit_expense / delete_expense: הוצאה קיימת. vendor ו/או amount מזהים, או last=true ל"האחרונה". לחדשים: new_amount, new_vendor, pay.
+- expense_summary: כמה הוצאנו. project_name אופציונלי, vendor אופציונלי, pay אופציונלי, period (week/month/all), group_by.
+- project_summary: מצב פרויקט (הוצאות ומשימות).
+- create_project: פרויקט חדש (project_name = שם חדש, address, client_name). set_project_status: status אחד מ: בהתחלה, בביצוע, סיום.
+- find_supplier: טלפון/פרטי ספק (supplier_name). add_supplier: ספק חדש. link_supplier: שיוך ספק לפרויקט.
+- add_order: הזמנת חומר (item, supplier_name אופציונלי, status). update_order: item מזהה + status חדש. list_orders: הזמנות פתוחות.
+- add_doc: תיעוד עבודה באתר (תמונה או וידאו שאינם קבלה). title קצר, stage אם ברור.
+- add_supplier_doc: תעודת משלוח או תיעוד שקשור לספק (supplier_name, kind).
+- add_event: פגישה/אירוע ביומן. title, due=התאריך (YYYY-MM-DD), time (HH:MM) אם יש, location, remind_minutes.
+- list_events: מה ביומן. scope today/tomorrow/week.
+- chat: כל דבר אחר או כשחסר פרט הכרחי. ב-reply משפט קצר בעברית ושאלה על מה שחסר.
+${common}`;
+}
+
+async function aiParse(c: Ctx, text: string, media: { buf: Uint8Array; mime: string } | null, isVideo: boolean, projects: any[]) {
+  const content: any[] = [];
+  if (media && !isVideo) content.push({ type: "image", source: { type: "base64", media_type: media.mime, data: b64(media.buf) } });
+  content.push({ type: "text", text: (text || "") + (isVideo ? "\n(נשלח וידאו)" : "") || "(תמונה בלי טקסט)" });
+  const res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": AI_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({
+      model: AI_MODEL, max_tokens: 900, system: systemPrompt(c, projects),
+      tools: [actTool(c.role === "worker" ? WORKER_ACTIONS : STAFF_ACTIONS)], tool_choice: { type: "tool", name: "act" },
+      messages: [{ role: "user", content }],
+    }),
+  });
   if (!res.ok) throw new Error("ai " + res.status);
   const j = await res.json();
   const tu = (j.content || []).find((x: any) => x.type === "tool_use");
@@ -150,65 +208,3 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
       await savePending(c.from, { kind: "delete_task", id: hits[0].id, label: `המשימה "${hits[0].title}"` });
       return `למחוק את המשימה "${hits[0].title}"?\nכתוב "כן" לאישור.`;
     }
-    // ----- expenses -----
-    case "add_expense": {
-      if (!proj) return needProj;
-      const amount = Number(a.amount);
-      if (!isFinite(amount) || amount <= 0) return "לא הצלחתי לקרוא סכום. כתוב אותו בהודעה, למשל: 350 חשמל בנימין " + proj.name;
-      const pay = a.pay === "מזומן" || a.pay === "אשראי" ? a.pay : null;
-      const vendor = String(a.vendor || "").trim() || "ללא ספק";
-      const date = DATE_RE.test(a.date || "") ? a.date : ymd(il());
-      const { error } = await db.from("expenses").insert({ project_id: proj.id, vendor, amount, pay, photo: mediaPath, date, note: a.note || null });
-      if (error) return "לא הצלחתי לשמור את ההוצאה.";
-      return `נשמר ✓ הוצאה ב"${proj.name}": ${vendor} ${num(amount)} ₪${pay ? " · " + pay : ""}${mediaPath ? " · עם קבלה" : ""}`;
-    }
-    case "edit_expense":
-    case "delete_expense": {
-      let q = db.from("expenses").select("id,vendor,amount,date,project_id,pay").order("created_at", { ascending: false });
-      if (proj && a.project_name) q = q.eq("project_id", proj.id);
-      const { data } = await q.limit(60);
-      let hits = (data || []).filter((x: any) =>
-        (!a.vendor || norm(x.vendor).includes(norm(a.vendor)) || norm(a.vendor).includes(norm(x.vendor))) &&
-        (!a.amount || Number(x.amount) === Number(a.amount)));
-      if (a.last) hits = hits.slice(0, 1);
-      if (!hits.length) return "לא מצאתי הוצאה כזאת.";
-      if (hits.length > 1) return "מצאתי כמה הוצאות:\n" + hits.slice(0, 6).map((x: any) => `• ${x.vendor} ${num(x.amount)} ₪ · ${fmtD(x.date)} (${pNames[x.project_id] || ""})`).join("\n") + "\nכתוב סכום או ספק מדויק, או 'האחרונה'.";
-      const x = hits[0]; const lbl = `${x.vendor} ${num(x.amount)} ₪ (${pNames[x.project_id] || ""})`;
-      if (a.action === "delete_expense") {
-        await savePending(c.from, { kind: "delete_expense", id: x.id, label: `ההוצאה ${lbl}` });
-        return `למחוק את ההוצאה ${lbl}?\nכתוב "כן" לאישור.`;
-      }
-      const patch: any = {}; const parts: string[] = [];
-      if (a.new_amount) { patch.amount = Number(a.new_amount); parts.push(`סכום ${num(a.new_amount)} ₪`); }
-      if (a.new_vendor) { patch.vendor = a.new_vendor; parts.push(`ספק ${a.new_vendor}`); }
-      if (a.pay === "מזומן" || a.pay === "אשראי") { patch.pay = a.pay; parts.push(a.pay); }
-      if (!parts.length) return "מה לשנות בהוצאה? (סכום, ספק או אמצעי תשלום)";
-      await savePending(c.from, { kind: "edit_expense", id: x.id, patch, label: `ההוצאה ${lbl} → ${parts.join(", ")}` });
-      return `לעדכן את ההוצאה ${lbl} ל: ${parts.join(", ")}?\nכתוב "כן" לאישור.`;
-    }
-    case "expense_summary": {
-      let q = db.from("expenses").select("amount,pay,vendor,date,project_id");
-      if (proj && a.project_name) q = q.eq("project_id", proj.id);
-      const today = ymd(il());
-      if (a.period === "month") q = q.gte("date", today.slice(0, 8) + "01");
-      else if (a.period === "week") q = q.gte("date", addDays(today, -7));
-      const { data } = await q.limit(2000);
-      let rows = data || [];
-      if (a.vendor) rows = rows.filter((x: any) => norm(x.vendor).includes(norm(a.vendor)));
-      if (a.pay === "מזומן" || a.pay === "אשראי") rows = rows.filter((x: any) => x.pay === a.pay);
-      const total = rows.reduce((s: number, x: any) => s + (Number(x.amount) || 0), 0);
-      const by = (f: (x: any) => string) => { const m: Record<string, number> = {}; rows.forEach((x: any) => { const k = f(x) || "ללא"; m[k] = (m[k] || 0) + (Number(x.amount) || 0); }); return Object.entries(m).sort((p, q) => q[1] - p[1]).slice(0, 8).map(([k, v]) => `• ${k}: ${num(v)} ₪`).join("\n"); };
-      const per = a.period === "week" ? " בשבוע האחרון" : a.period === "month" ? " החודש" : "";
-      let out = `הוצאות${proj && a.project_name ? " ב\"" + proj.name + "\"" : ""}${a.vendor ? " ל" + a.vendor : ""}${per}: ${num(total)} ₪ (${rows.length} הוצאות)`;
-      const cash = rows.filter((x: any) => x.pay === "מזומן").reduce((s: number, x: any) => s + Number(x.amount || 0), 0);
-      const card = rows.filter((x: any) => x.pay === "אשראי").reduce((s: number, x: any) => s + Number(x.amount || 0), 0);
-      out += `\nמזומן ${num(cash)} ₪ · אשראי ${num(card)} ₪`;
-      if (a.group_by === "vendor" || (!a.vendor && rows.length > 1 && a.group_by !== "none")) out += "\n\nלפי ספק:\n" + by((x) => x.vendor);
-      if (!(proj && a.project_name) && a.group_by !== "none") out += "\n\nלפי פרויקט:\n" + by((x) => pNames[x.project_id]);
-      return out;
-    }
-    case "project_summary": {
-      if (!proj) return needProj;
-      const { data: ex } = await db.from("expenses").select("amount,pay").eq("project_id", proj.id);
-      const { data: tk } = await db.from("tasks").select("status").eq("project_id", proj.id);
-      const { data: od } = await db.from("orders").select("status").eq("project_id", proj.id);
