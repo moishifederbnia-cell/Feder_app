@@ -1,37 +1,3 @@
-    case "add_event": {
-      const title = String(a.title || "").trim();
-      if (!title) return "מה האירוע?";
-      if (!DATE_RE.test(a.due || a.date || "")) return "באיזה תאריך?";
-      const date = DATE_RE.test(a.due || "") ? a.due : a.date;
-      const hasTime = TIME_RE.test(a.time || "");
-      const time = hasTime ? a.time.padStart(5, "0") : "";
-      const startIso = hasTime ? ilToUtc(date, time) : ilToUtc(date, "00:00");
-      let endIso: string | null = null;
-      if (hasTime) endIso = TIME_RE.test(a.end_time || "") ? ilToUtc(date, a.end_time.padStart(5, "0")) : new Date(Date.parse(startIso) + 3600000).toISOString();
-      const id = crypto.randomUUID();
-      const { error } = await db.from("events").insert({ id, title, start_at: startIso, end_at: endIso, all_day: !hasTime, project_id: proj && a.project_name ? proj.id : null, location: a.location || null, notes: a.note || null });
-      if (error) return "לא הצלחתי לשמור את האירוע.";
-      let remNote = "";
-      const rm = a.remind_minutes === undefined || a.remind_minutes === null ? 30 : Number(a.remind_minutes);
-      if (rm >= 0) {
-        const base = hasTime ? Date.parse(startIso) : Date.parse(ilToUtc(date, "08:00"));
-        const when = new Date(base - (hasTime ? rm : 0) * 60000);
-        if (when.getTime() > Date.now()) {
-          const ids = await bossIds();
-          if (ids.length) {
-            await db.from("reminders").insert(ids.map((u: string) => ({ user_id: u, ref: "ev:" + id + ":" + u.slice(0, 6), title, body: (hasTime ? "בשעה " + time : "כל היום") + (a.location ? " · " + a.location : ""), remind_at: when.toISOString() })));
-            remNote = hasTime ? ` · תזכורת ${rm ? rm + " דק' לפני" : "בזמן האירוע"}` : " · תזכורת בבוקר";
-          }
-        }
-      }
-      return `נשמר ✓ ביומן: ${title} · ${fmtD(date)}${hasTime ? " " + time : " (כל היום)"}${a.location ? " · " + a.location : ""}${remNote}\n(יעבור ליומן גוגל כשתפתח את האפליקציה)`;
-    }
-    case "list_events": {
-      const today = ymd(il());
-      const scope = a.scope || "today";
-      const from = scope === "tomorrow" ? addDays(today, 1) : today;
-      const to = scope === "today" ? today : scope === "tomorrow" ? addDays(today, 1) : addDays(today, 7);
-      const { data } = await db.from("events").select("title,start_at,all_day,location").gte("start_at", ilToUtc(from, "00:00")).lt("start_at", ilToUtc(addDays(to, 1), "00:00")).order("start_at", { ascending: true }).limit(25);
       if (!data?.length) return "אין אירועים ביומן בתקופה הזאת.\n(מוצגים רק אירועים שנשמרו באפליקציה/בבוט, לא כל יומן גוגל.)";
       return "ביומן:\n" + data.map((e: any) => {
         const dt = new Date(new Date(e.start_at).toLocaleString("en-US", { timeZone: "Asia/Jerusalem" }));
@@ -251,3 +217,15 @@ Deno.serve(async (req) => {
       const tTodo = (tk || []).filter((x: any) => !x.title_ar);
       done += await translateRows("tasks", tTodo.slice(0, 60));
       remaining += Math.max(0, tTodo.length - 60);
+      return jres({ ok: true, translated: done, remaining });
+    }
+    const msgs = body?.entry?.[0]?.changes?.[0]?.value?.messages || [];
+    if (msgs.length) {
+      const job = processMessages(msgs);
+      // @ts-ignore EdgeRuntime exists on Supabase
+      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) EdgeRuntime.waitUntil(job);
+      else await job;
+    }
+  } catch (_e) { /* always 200 to Meta */ }
+  return new Response("ok", { headers: CORS });
+});

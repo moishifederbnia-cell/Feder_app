@@ -1,13 +1,3 @@
-  const common = `היום: ${ymd(d)} (יום ${wd}), שעון ישראל. חשב תאריכים יחסיים ("מחר", "יום ראשון הבא", "בעוד שבוע") לפי היום.
-פרויקטים: ${projects.map((p) => p.name).join(" | ") || "(אין)"}.
-אנשי צוות: ${team || "(אין)"}.
-project_name חייב להיות אחד מהשמות ברשימה בדיוק, או ריק אם לא ברור. בחר פעולה אחת בלבד.`;
-  if (c.role === "worker") {
-    return `אתה עוזר בוואטסאפ של חברת בנייה (פדר בניה) שמדבר עם פועל שטח בשם ${c.name || "הפועל"}. הוא כותב בערבית או בעברית.
-הוא מורשה רק: לראות משימות (list_tasks), לסגור משימה (complete_task) או לפתוח מחדש (reopen_task), לשלוח תיעוד של עבודה בתמונה או וידאו (add_doc), או לשאול שאלה כללית (chat).
-אסור לו לראות או לשנות כסף, הוצאות, ספקים או תקציבים. אם ביקש משהו כזה, action=chat עם reply בערבית: "هذا غير متاح لك".
-"مهامي"/"שלי" => mine=true. בתיעוד: כתוב title ו-note בעברית (תרגם מערבית), stage אם ברור.
-כשאתה כותב reply בערבית, השתמש בערבית פשוטה וברורה.
 ${common}`;
   }
   return `אתה עוזר של מנהל עבודה בחברת בנייה (פדר בניה). הוא כותב לך בעברית קצרה מהשטח, לפעמים עם תמונת קבלה או תיעוד.
@@ -211,3 +201,21 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
       const reopen = a.action === "reopen_task";
       const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, reopen);
       if (!hits.length) return L(c, "לא מצאתי משימה כזאת.", "لم أجد هذه المهمة.");
+      if (hits.length > 1) return L(c, "מצאתי כמה משימות:\n", "وجدت عدة مهام:\n") + hits.slice(0, 6).map((t: any) => "• " + tTitle(t, c)).join("\n") + L(c, "\nכתוב את השם המדויק של אחת מהן.", "\nاكتب الاسم الدقيق لإحداها.");
+      const t = hits[0];
+      const { error } = await db.from("tasks").update(reopen ? { status: "לביצוע", done_at: null } : { status: "הושלם", done_at: new Date().toISOString() }).eq("id", t.id);
+      if (error) return L(c, "לא הצלחתי לעדכן.", "تعذّر التحديث.");
+      if (c.role === "worker" && !reopen) await pushTo(await bossIds(), `${c.name || "פועל"} סגר משימה`, `${t.title} · ${pNames[t.project_id] || ""}`);
+      return reopen ? L(c, `נפתחה מחדש ✓ "${t.title}"`, `أُعيد فتحها ✓ "${tTitle(t, c)}"`) : L(c, `נשמר ✓ "${t.title}" סומנה כבוצעה.`, `تم ✓ "${tTitle(t, c)}"`);
+    }
+    case "edit_task": {
+      const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, false);
+      if (!hits.length) return "לא מצאתי משימה פתוחה כזאת.";
+      if (hits.length > 1) return "מצאתי כמה משימות:\n" + hits.slice(0, 6).map((t: any) => "• " + t.title).join("\n") + "\nכתוב את השם המדויק.";
+      const t = hits[0]; const patch: any = {}; const parts: string[] = [];
+      if (a.new_title) { patch.title = a.new_title; patch.title_ar = a.new_title_ar || null; parts.push(`טקסט: ${a.new_title}`); }
+      if (DATE_RE.test(a.due || "")) { patch.due = a.due; parts.push(`תאריך: ${fmtD(a.due)}`); }
+      let mem: any = null;
+      if (a.assignee_name) { mem = matchMember(a.assignee_name, c.team); if (mem) { patch.assignee_id = mem.id; parts.push(`אחראי: ${mem.name}`); } }
+      if (!parts.length) return "מה לשנות במשימה? (טקסט, תאריך או אחראי)";
+      const label = `"${t.title}" → ${parts.join(", ")}`;
