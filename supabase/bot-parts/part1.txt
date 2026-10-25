@@ -217,6 +217,7 @@ function actTool(actions: string[]) {
               title_ar: { type: "string", description: "The same task translated to clear Arabic" },
               due: { type: "string", description: "YYYY-MM-DD or empty" },
               assignee: { type: "string", description: "Team member name exactly as in the team list, or empty" },
+              time: { type: "string", description: "HH:MM if the task is a meeting/appointment at a specific time (then it is saved as a task AND a calendar event with a reminder)" },
               decision: { type: "boolean", description: "true if the task is waiting for a decision (ממתין להחלטה / צריך להחליט)" },
             },
             required: ["title"],
@@ -243,5 +244,3 @@ function actTool(actions: string[]) {
         status: { type: "string", description: "Order status (לא הוזמן/הוזמן/הגיע) or project status (בהתחלה/בביצוע/סיום)" },
         time: { type: "string", description: "Event start HH:MM (24h) or empty for all-day" },
         end_time: { type: "string" }, location: { type: "string" },
-        remind_minutes: { type: "number", description: "Minutes before the event to remind; -1 for none; default 30" },
-        group_by: { type: "string", enum: ["vendor", "pay", "none"], description: "expense_summary grouping" },

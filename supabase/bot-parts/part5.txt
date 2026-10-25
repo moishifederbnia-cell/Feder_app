@@ -1,0 +1,3 @@
+  } catch (_e) { /* always 200 to Meta */ }
+  return new Response("ok", { headers: CORS });
+});

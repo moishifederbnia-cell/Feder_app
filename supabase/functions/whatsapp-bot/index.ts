@@ -217,6 +217,7 @@ function actTool(actions: string[]) {
               title_ar: { type: "string", description: "The same task translated to clear Arabic" },
               due: { type: "string", description: "YYYY-MM-DD or empty" },
               assignee: { type: "string", description: "Team member name exactly as in the team list, or empty" },
+              time: { type: "string", description: "HH:MM if the task is a meeting/appointment at a specific time (then it is saved as a task AND a calendar event with a reminder)" },
               decision: { type: "boolean", description: "true if the task is waiting for a decision (ממתין להחלטה / צריך להחליט)" },
             },
             required: ["title"],
@@ -272,7 +273,7 @@ ${common}`;
   }
   return `אתה עוזר של מנהל עבודה בחברת בנייה (פדר בניה). הוא כותב לך בעברית קצרה מהשטח, לפעמים עם תמונת קבלה או תיעוד.
 בחר את הפעולה והמלא פרטים:
-- add_task: משימה חדשה (אפשר כמה, ב-tasks). לכל משימה: title בעברית, title_ar תרגום לערבית, due אם צוין, assignee אם שייך לאדם מהצוות ("תן לאבו יאסר...", "אמיתי ידאג ל..."), decision=true אם זו משימה שממתינה להחלטה ("ממתין להחלטה", "צריך להחליט", "לחכות להחלטה").
+- add_task: משימה חדשה (אפשר כמה, ב-tasks). לכל משימה: title בעברית, title_ar תרגום לערבית, due אם צוין, assignee אם שייך לאדם מהצוות ("תן לאבו יאסר...", "אמיתי ידאג ל..."), time=HH:MM אם המשימה היא פגישה/מפגש בשעה מסוימת ("פגישה מחר ב-10 עם ספק האלומיניום": due ו-time, ותישמר גם כמשימה וגם ביומן עם תזכורת פוש), decision=true אם זו משימה שממתינה להחלטה ("ממתין להחלטה", "צריך להחליט", "לחכות להחלטה").
 - list_tasks: מה יש/פתוח/באיחור/להיום. scope: today (להיום, כולל באיחור), tomorrow, week, overdue, open, done, decision (משימות שממתינות להחלטה). assignee_name אם שאל על אדם. mine=true אם שאל "מה יש לי".
 - complete_task / reopen_task: סגירה או פתיחה מחדש של משימה קיימת. title = מילים מזהות.
 - edit_task: שינוי משימה קיימת. title מזהה; new_title/new_title_ar, due, assignee_name לחדשים.
@@ -378,6 +379,24 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
   const needProj = L(c, "לאיזה פרויקט? כתוב את שם הפרויקט (" + P.map((p: any) => p.name).join(", ") + ").", "لأي مشروع؟ (" + P.map((p: any) => p.name).join("، ") + ")");
   const bossIds = async () => adminIds();
 
+  const mkEvent = async (title: string, date: string, timeIn: string, projId: string | null, remindIn: any): Promise<string> => {
+    const time = timeIn.padStart(5, "0");
+    const startIso = ilToUtc(date, time);
+    const id = crypto.randomUUID();
+    const { error } = await db.from("events").insert({ id, title, start_at: startIso, end_at: new Date(Date.parse(startIso) + 3600000).toISOString(), all_day: false, project_id: projId, location: null, notes: null });
+    if (error) return "";
+    const rm = remindIn === undefined || remindIn === null ? 30 : Number(remindIn);
+    if (rm >= 0) {
+      const when = new Date(Date.parse(startIso) - rm * 60000);
+      if (when.getTime() > Date.now()) {
+        const ids = await bossIds();
+        if (ids.length) await db.from("reminders").insert(ids.map((u: string) => ({ user_id: u, ref: "ev:" + id + ":" + u.slice(0, 6), title, body: "בשעה " + time, remind_at: when.toISOString() })));
+        return ` 📅 ביומן ${time} · תזכורת ${rm ? rm + " דק' לפני" : "בזמן הפגישה"}`;
+      }
+    }
+    return ` 📅 ביומן ${time}`;
+  };
+
   switch (a.action) {
     // ----- tasks -----
     case "add_task": {
@@ -392,7 +411,9 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
         const row: any = { project_id: proj.id, title, title_ar: it.title_ar || null, due, status: (it.decision || a.decision) ? "ממתין להחלטה" : "לביצוע", assignee_id: mem ? mem.id : null };
         const { error } = await db.from("tasks").insert(row);
         if (error) { out.push("✗ " + title); continue; }
-        out.push(`• ${title}${mem ? " ← " + mem.name : ""}${due ? " (עד " + fmtD(due) + ")" : ""}`);
+        let evNote = "";
+        if (TIME_RE.test(it.time || "") && due) evNote = await mkEvent(title, due, it.time, proj.id, a.remind_minutes);
+        out.push(`• ${title}${mem ? " ← " + mem.name : ""}${due ? " (עד " + fmtD(due) + ")" : ""}${evNote}`);
         if (mem) await notifyAssignee(mem.id, title, it.title_ar || null, proj.name, c);
       }
       return `נשמר ✓ ב"${proj.name}":\n` + out.join("\n");
