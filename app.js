@@ -272,7 +272,7 @@ var F={
   {k:'budget',l:'תקציב (₪)',t:'number'}]},
  task:{title:'משימה',col:'tasks',fields:[
   {k:'projectId',l:'פרויקט',t:'project',req:1},{k:'title',l:'מה צריך לעשות',t:'text',req:1},{k:'title_ar',l:'כותרת בערבית (לא חובה, לעובד שטח)',t:'text'},
-  {k:'assigneeId',l:'אחראי (ימתין לביצוע אצל)',t:'assignee'},{k:'due',l:'עד תאריך',t:'date'},{k:'remind',l:'תזכורת בטלפון (דרך יומן גוגל)',t:'select',o:['ללא','בבוקר של היום (8:00)','יום לפני (18:00)'],d:'ללא'},{k:'status',l:'סטטוס',t:'select',o:['לביצוע','בתהליך','הושלם'],d:'לביצוע'},
+  {k:'assigneeId',l:'אחראי (ימתין לביצוע אצל)',t:'assignee'},{k:'due',l:'עד תאריך',t:'date'},{k:'remind',l:'תזכורת בטלפון (דרך יומן גוגל)',t:'select',o:['ללא','בבוקר של היום (8:00)','יום לפני (18:00)'],d:'ללא'},{k:'status',l:'סטטוס',t:'select',o:['לביצוע','בתהליך','ממתין להחלטה','הושלם'],d:'לביצוע'},
   {k:'notes',l:'הערות',t:'textarea'}]},
  expense:{title:'הוצאה / קבלה',col:'expenses',fields:[
   {k:'photo',l:'תמונת הקבלה',t:'photo'},{k:'projectId',l:'פרויקט',t:'project',req:1},
@@ -301,7 +301,7 @@ var F={
   {k:'stage',l:'תחום',t:'select',o:['חשמל','אינסטלציה','איטום','ריצוף','בנייה','הריסה','משימה','אחר'],d:'אחר'},
   {k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'הערה',t:'textarea'}]}
 };
-var TASK_CHIP={'לביצוע':'neutral','בתהליך':'warn','הושלם':'ok'};
+var TASK_CHIP={'לביצוע':'neutral','בתהליך':'warn','ממתין להחלטה':'start','הושלם':'ok'};
 var PROJ_CHIP={'בהתחלה':'start','בביצוע':'run','בפינישים':'info','הסתיים':'ok','סיום':'ok'};
 var ORD_CHIP={'לא הוזמן':'warn','הוזמן':'info','הגיע':'ok'};
 var ORD_NEXT={'לא הוזמן':'הוזמן','הוזמן':'הגיע','הגיע':'לא הוזמן'};
@@ -383,7 +383,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 33</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 34</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -413,12 +413,13 @@ function vTasks(){
   var list=S.tasks.filter(function(t){
     if(UI.taskProject&&t.projectId!==UI.taskProject)return false;
     if(UI.taskPerson){var pid=UI.taskPerson==='me'?(myMember()||{}).id:UI.taskPerson;if(t.assigneeId!==pid)return false;}
-    if(UI.taskFilter==='open')return t.status!=='הושלם';
+    if(UI.taskFilter==='open')return t.status!=='הושלם'&&t.status!=='ממתין להחלטה';
+    if(UI.taskFilter==='dec')return t.status==='ממתין להחלטה';
     if(UI.taskFilter==='done')return t.status==='הושלם';
     return true;});
   var h=bandHtml('משימות',null,{right:'<button class="btn btn-accent" data-act="add" data-e="task">'+ico('plus',20)+'חדשה</button>'});
   h+='<main class="wrap" style="'+PULL+'">';
-  h+='<div class="filters">'+[['open','פתוחות'],['all','הכול'],['done','הושלמו']].map(function(x){return '<button class="fchip" data-act="tfilter" data-v="'+x[0]+'" aria-pressed="'+(UI.taskFilter===x[0])+'">'+x[1]+'</button>';}).join('')+'</div>';
+  h+='<div class="filters">'+[['open','פתוחות'],['dec','ממתינות להחלטה ('+S.tasks.filter(function(t){return t.status==='ממתין להחלטה';}).length+')'],['all','הכול'],['done','הושלמו']].map(function(x){return '<button class="fchip" data-act="tfilter" data-v="'+x[0]+'" aria-pressed="'+(UI.taskFilter===x[0])+'">'+x[1]+'</button>';}).join('')+'</div>';
   h+=projSelect('tproj','taskProject');
   h+='<div class="fld"><label for="tper" class="sr">אחראי</label><select id="tper" data-sel="taskPerson"><option value="">כל האנשים</option>'+(myMember()?'<option value="me"'+(UI.taskPerson==='me'?' selected':'')+'>המשימות שלי</option>':'')+S.team_members.map(function(m){return '<option value="'+esc(m.id)+'"'+(UI.taskPerson===m.id?' selected':'')+'>'+esc(m.name)+'</option>';}).join('')+'</select></div>';
   h+=list.length?'<div class="stack">'+sortTasks(list).map(taskRow.bind(null,true,true)).join('')+'</div>':emptyBox(UI.taskFilter==='done'?'עוד לא הושלמה אף משימה.':'אין משימות להצגה.',addBtn('task','משימה חדשה'));
