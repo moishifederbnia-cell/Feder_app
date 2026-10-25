@@ -1,6 +1,0 @@
-      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) EdgeRuntime.waitUntil(job);
-      else await job;
-    }
-  } catch (_e) { /* always 200 to Meta */ }
-  return new Response("ok", { headers: CORS });
-});

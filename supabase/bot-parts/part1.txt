@@ -249,3 +249,17 @@ function actTool(actions: string[]) {
         group_by: { type: "string", enum: ["vendor", "pay", "none"], description: "expense_summary grouping" },
         period: { type: "string", enum: ["week", "month", "all"], description: "expense_summary period" },
         address: { type: "string" }, client_name: { type: "string" },
+        reply: { type: "string", description: "For action=chat: short answer or a question asking for the missing detail" },
+      },
+      required: ["action"],
+    },
+  };
+}
+
+function systemPrompt(c: Ctx, projects: any[]) {
+  const d = il();
+  const wd = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"][d.getDay()];
+  const team = c.team.map((m) => m.name + (m.name_ar ? ` (${m.name_ar})` : "")).join(" | ");
+  const common = `היום: ${ymd(d)} (יום ${wd}), שעון ישראל. חשב תאריכים יחסיים ("מחר", "יום ראשון הבא", "בעוד שבוע") לפי היום.
+פרויקטים: ${projects.map((p) => p.name).join(" | ") || "(אין)"}.
+אנשי צוות: ${team || "(אין)"}.

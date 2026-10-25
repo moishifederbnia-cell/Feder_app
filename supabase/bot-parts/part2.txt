@@ -1,17 +1,3 @@
-        reply: { type: "string", description: "For action=chat: short answer or a question asking for the missing detail" },
-      },
-      required: ["action"],
-    },
-  };
-}
-
-function systemPrompt(c: Ctx, projects: any[]) {
-  const d = il();
-  const wd = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"][d.getDay()];
-  const team = c.team.map((m) => m.name + (m.name_ar ? ` (${m.name_ar})` : "")).join(" | ");
-  const common = `היום: ${ymd(d)} (יום ${wd}), שעון ישראל. חשב תאריכים יחסיים ("מחר", "יום ראשון הבא", "בעוד שבוע") לפי היום.
-פרויקטים: ${projects.map((p) => p.name).join(" | ") || "(אין)"}.
-אנשי צוות: ${team || "(אין)"}.
 project_name חייב להיות אחד מהשמות ברשימה בדיוק, או ריק אם לא ברור. בחר פעולה אחת בלבד.`;
   if (c.role === "worker") {
     return `אתה עוזר בוואטסאפ של חברת בנייה (פדר בניה) שמדבר עם פועל שטח בשם ${c.name || "הפועל"}. הוא כותב בערבית או בעברית.
@@ -209,3 +195,19 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
       const { data } = await q.limit(25);
       if (!data?.length) return L(c, "אין משימות" + (scope === "done" ? " שהושלמו" : "") + " כאלה 👍", "لا توجد مهام 👍");
       const SC: Record<string, string> = { today: "להיום ובאיחור", tomorrow: "למחר", week: "לשבוע הקרוב", overdue: "באיחור", open: "פתוחות", done: "שהושלמו" };
+      const head = L(c, "משימות " + (SC[scope] || "") + (who ? " – " + who.name : "") + ":", "المهام" + (who ? " – " + mName(who, c) : "") + ":");
+      const mById: Record<string, any> = {}; c.team.forEach((m) => (mById[m.id] = m));
+      return head + "\n" + data.map((t: any) => {
+        const late = t.due && t.due < today && t.status !== "הושלם";
+        return `• ${tTitle(t, c)}${!(proj && a.project_name) ? " (" + (pNames[t.project_id] || "") + ")" : ""}${!who && t.assignee_id && mById[t.assignee_id] ? " · " + mName(mById[t.assignee_id], c) : ""}${t.due ? " · " + (late ? "⚠️ " : "") + L(c, "עד ", "حتى ") + fmtD(t.due) : ""}`;
+      }).join("\n");
+    }
+    case "complete_task":
+    case "reopen_task": {
+      const reopen = a.action === "reopen_task";
+      const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, reopen);
+      if (!hits.length) return L(c, "לא מצאתי משימה כזאת.", "لم أجد هذه المهمة.");
+      if (hits.length > 1) return L(c, "מצאתי כמה משימות:\n", "وجدت عدة مهام:\n") + hits.slice(0, 6).map((t: any) => "• " + tTitle(t, c)).join("\n") + L(c, "\nכתוב את השם המדויק של אחת מהן.", "\nاكتب الاسم الدقيق لإحداها.");
+      const t = hits[0];
+      const { error } = await db.from("tasks").update(reopen ? { status: "לביצוע", done_at: null } : { status: "הושלם", done_at: new Date().toISOString() }).eq("id", t.id);
+      if (error) return L(c, "לא הצלחתי לעדכן.", "تعذّر التحديث.");
