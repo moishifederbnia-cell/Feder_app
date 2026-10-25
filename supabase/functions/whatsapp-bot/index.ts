@@ -42,7 +42,7 @@ function b64(buf: Uint8Array) {
 }
 
 // ---------- dates ----------
-const STAGES = ["שלד", "אינסטלציה", "חשמל", "איטום", "טיח", "ריצוף", "גמר", "אחר"];
+const STAGES = ["חשמל", "אינסטלציה", "איטום", "ריצוף", "בנייה", "הריסה", "משימה", "אחר"];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{1,2}:\d{2}$/;
 function ymd(d: Date) {
@@ -237,7 +237,7 @@ function actTool(actions: string[]) {
         pay: { type: "string", enum: ["מזומן", "אשראי", ""] },
         date: { type: "string", description: "Date YYYY-MM-DD if stated/visible, else empty" },
         note: { type: "string" },
-        stage: { type: "string", description: "Work stage: שלד, אינסטלציה, חשמל, איטום, טיח, ריצוף, גמר, אחר" },
+        stage: { type: "string", description: "Trade/area: חשמל, אינסטלציה, איטום, ריצוף, בנייה, הריסה, משימה, אחר" },
         last: { type: "boolean", description: "The user means the latest/last one" },
         supplier_name: { type: "string" }, supplier_field: { type: "string" }, supplier_phone: { type: "string" },
         kind: { type: "string", enum: ["תעודת משלוח", "תיעוד"], description: "add_supplier_doc kind" },
@@ -274,7 +274,7 @@ ${common}`;
   }
   return `אתה עוזר של מנהל עבודה בחברת בנייה (פדר בניה). הוא כותב לך בעברית קצרה מהשטח, לפעמים עם תמונת קבלה או תיעוד.
 בחר את הפעולה והמלא פרטים:
-- add_task: משימה חדשה (אפשר כמה, ב-tasks). לכל משימה: title בעברית, title_ar תרגום לערבית, due אם צוין, assignee אם שייך לאדם מהצוות ("תן לאבו יאסר...", "אמיתי ידאג ל..."), time=HH:MM רק אם צוינה שעה למשימה ("הספק מגיע מחר ב-10": due ו-time, תזכורת פוש חצי שעה לפני, בלי יומן). משימה בלי שעה: בלי time ובלי תזכורת. meeting=true רק אם המשתמש אמר פגישה/מפגש: אז היא נשמרת גם ביומן גוגל (due ו-time) עם תזכורת, decision=true אם זו משימה שממתינה להחלטה ("ממתין להחלטה", "צריך להחליט", "לחכות להחלטה").
+- add_task: משימה חדשה. אפשר הרבה משימות בהודעה אחת: אם כותבים רשימה (משימה אחת..., משימה שתיים..., 1. 2. 3., שורות נפרדות, או "משימות לפרויקט X: ..."), צור פריט נפרד ב-tasks לכל משימה, בלי להגביל את המספר. לכל פריט יכולים להיות assignee, due, time ו-project_name משלו (אם הרשימה כוללת כמה פרויקטים). אם כתוב "כל אלה ל-X" או "לאבו יאסר: ..." החל את האדם על כל המשימות שמתחתיו עד שמוזכר אדם אחר. אם נשלחה תמונה עם הכיתוב, היא תצורף למשימה הראשונה. לכל משימה: title בעברית, title_ar תרגום לערבית, due אם צוין, assignee אם שייך לאדם מהצוות ("תן לאבו יאסר...", "אמיתי ידאג ל..."), time=HH:MM רק אם צוינה שעה למשימה ("הספק מגיע מחר ב-10": due ו-time, תזכורת פוש חצי שעה לפני, בלי יומן). משימה בלי שעה: בלי time ובלי תזכורת. meeting=true רק אם המשתמש אמר פגישה/מפגש: אז היא נשמרת גם ביומן גוגל (due ו-time) עם תזכורת, decision=true אם זו משימה שממתינה להחלטה ("ממתין להחלטה", "צריך להחליט", "לחכות להחלטה").
 - list_tasks: מה יש/פתוח/באיחור/להיום. scope: today (להיום, כולל באיחור), tomorrow, week, overdue, open, done, decision (משימות שממתינות להחלטה). assignee_name אם שאל על אדם. mine=true אם שאל "מה יש לי".
 - complete_task / reopen_task: סגירה או פתיחה מחדש של משימה קיימת. title = מילים מזהות.
 - edit_task: שינוי משימה קיימת. title מזהה; new_title/new_title_ar, due, assignee_name לחדשים.
@@ -302,7 +302,7 @@ async function aiParse(c: Ctx, text: string, media: { buf: Uint8Array; mime: str
     method: "POST",
     headers: { "x-api-key": AI_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify({
-      model: AI_MODEL, max_tokens: 900, system: systemPrompt(c, projects),
+      model: AI_MODEL, max_tokens: 3000, system: systemPrompt(c, projects),
       tools: [actTool(c.role === "worker" ? WORKER_ACTIONS : STAFF_ACTIONS)], tool_choice: { type: "tool", name: "act" },
       messages: [{ role: "user", content }],
     }),
@@ -408,28 +408,36 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
   switch (a.action) {
     // ----- tasks -----
     case "add_task": {
-      if (!proj) return needProj;
       const items: any[] = Array.isArray(a.tasks) && a.tasks.length ? a.tasks : (a.title ? [{ title: a.title, due: a.due, assignee: a.assignee_name }] : []);
       if (!items.length) return "מה המשימה?";
+      if (!proj && !items.some((x: any) => x.project_name)) return needProj;
       const out: string[] = [];
+      const projNames = new Set<string>();
+      let first = true;
       for (const it of items) {
         const title = String(it.title || "").trim(); if (!title) continue;
+        const ip = it.project_name ? (matchProject(it.project_name, "", P) || proj) : proj;
+        if (!ip) { out.push("✗ " + title + " (לא ידוע לאיזה פרויקט)"); continue; }
         const due = DATE_RE.test(it.due || "") ? it.due : null;
         const mem = it.assignee ? matchMember(it.assignee, c.team) : null;
-        const row: any = { project_id: proj.id, title, title_ar: it.title_ar || null, due, status: (it.decision || a.decision) ? "ממתין להחלטה" : "לביצוע", assignee_id: mem ? mem.id : null };
+        const row: any = { project_id: ip.id, title, title_ar: it.title_ar || null, due, status: (it.decision || a.decision) ? "ממתין להחלטה" : "לביצוע", assignee_id: mem ? mem.id : null };
         const hasT = TIME_RE.test(it.time || "") && !!due;
         const tid = crypto.randomUUID();
         row.id = tid;
         if (hasT) row.due_time = it.time.padStart(5, "0");
+        if (mediaPath && first) row.photo = mediaPath;
         let ins = await db.from("tasks").insert(row);
-        if (ins.error && hasT) { delete row.due_time; ins = await db.from("tasks").insert(row); }
+        if (ins.error && (hasT || row.photo)) { delete row.due_time; delete row.photo; ins = await db.from("tasks").insert(row); }
         if (ins.error) { out.push("✗ " + title); continue; }
+        first = false;
+        projNames.add(ip.name);
         let evNote = "";
-        if (hasT) evNote = await mkTimed(title, due as string, it.time, proj.id, a.remind_minutes, !!it.meeting, [mem?.user_id || ""], tid);
-        out.push(`• ${title}${mem ? " ← " + mem.name : ""}${due ? " (עד " + fmtD(due) + ")" : ""}${evNote}`);
-        if (mem) await notifyAssignee(mem.id, title, it.title_ar || null, proj.name, c);
+        if (hasT) evNote = await mkTimed(title, due as string, it.time, ip.id, a.remind_minutes, !!it.meeting, [mem?.user_id || ""], tid);
+        out.push(`• ${title}${mem ? " ← " + mem.name : ""}${due ? " (עד " + fmtD(due) + ")" : ""}${evNote}${projNames.size > 1 || (it.project_name && proj && ip.id !== proj.id) ? " [" + ip.name + "]" : ""}`);
+        if (mem) await notifyAssignee(mem.id, title, it.title_ar || null, ip.name, c);
       }
-      return `נשמר ✓ ב"${proj.name}":\n` + out.join("\n");
+      const head = projNames.size === 1 ? `נשמר ✓ ב"${Array.from(projNames)[0]}" (${out.filter((x) => x.startsWith("•")).length} משימות):` : `נשמר ✓ (${out.filter((x) => x.startsWith("•")).length} משימות):`;
+      return head + "\n" + out.join("\n");
     }
     case "list_tasks": {
       const today = ymd(il());
@@ -598,8 +606,10 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
         if (Object.keys(patch).length) await db.from("suppliers").update(patch).eq("id", sup.id);
       } else {
         const ins = await db.from("suppliers").insert({ name, field: a.supplier_field || null, phone: a.supplier_phone || null }).select("id,name").maybeSingle();
-        if (ins.error || !ins.data) return "לא הצלחתי לשמור את הספק.";
-        sup = ins.data; created = true;
+        if (ins.error) return "לא הצלחתי לשמור את הספק.";
+        sup = ins.data || (await supplierByName(name));
+        if (!sup) return "לא הצלחתי לשמור את הספק.";
+        created = true;
       }
       let linked = "";
       if (a.project_name && proj) {
@@ -650,8 +660,8 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
     case "add_doc": {
       if (!proj) return needProj;
       if (!mediaPath) return L(c, "שלח תמונה או וידאו עם הכיתוב.", "أرسل صورة أو فيديو مع وصف.");
-      const title = String(a.title || "").trim() || "תיעוד";
-      const stage = STAGES.includes(a.stage) ? a.stage : null;
+      const stage = STAGES.includes(a.stage) ? a.stage : "אחר";
+      const title = String(a.title || "").trim() || stage;
       const { error } = await db.from("docs").insert({ project_id: proj.id, title, stage, note: a.note || null, photo: mediaPath, date: ymd(il()) });
       if (error) return L(c, "לא הצלחתי לשמור את התיעוד.", "تعذّر حفظ التوثيق.");
       if (c.role === "worker") await pushTo(await bossIds(), `${c.name || "פועל"} שלח תיעוד`, `${title} · ${proj.name}`);

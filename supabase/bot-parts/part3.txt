@@ -1,3 +1,17 @@
+      const head = L(c, "משימות " + (SC[scope] || "") + (who ? " – " + who.name : "") + ":", "المهام" + (who ? " – " + mName(who, c) : "") + ":");
+      const mById: Record<string, any> = {}; c.team.forEach((m) => (mById[m.id] = m));
+      return head + "\n" + data.map((t: any) => {
+        const late = t.due && t.due < today && t.status !== "הושלם";
+        return `• ${tTitle(t, c)}${!(proj && a.project_name) ? " (" + (pNames[t.project_id] || "") + ")" : ""}${!who && t.assignee_id && mById[t.assignee_id] ? " · " + mName(mById[t.assignee_id], c) : ""}${t.due ? " · " + (late ? "⚠️ " : "") + L(c, "עד ", "حتى ") + fmtD(t.due) : ""}`;
+      }).join("\n");
+    }
+    case "complete_task":
+    case "reopen_task": {
+      const reopen = a.action === "reopen_task";
+      const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, reopen);
+      if (!hits.length) return L(c, "לא מצאתי משימה כזאת.", "لم أجد هذه المهمة.");
+      if (hits.length > 1) return L(c, "מצאתי כמה משימות:\n", "وجدت عدة مهام:\n") + hits.slice(0, 6).map((t: any) => "• " + tTitle(t, c)).join("\n") + L(c, "\nכתוב את השם המדויק של אחת מהן.", "\nاكتب الاسم الدقيق لإحداها.");
+      const t = hits[0];
       const { error } = await db.from("tasks").update(reopen ? { status: "לביצוע", done_at: null } : { status: "הושלם", done_at: new Date().toISOString() }).eq("id", t.id);
       if (error) return L(c, "לא הצלחתי לעדכן.", "تعذّر التحديث.");
       if (c.role === "worker" && !reopen) await pushTo(await bossIds(), `${c.name || "פועל"} סגר משימה`, `${t.title} · ${pNames[t.project_id] || ""}`);
@@ -130,8 +144,10 @@
         if (Object.keys(patch).length) await db.from("suppliers").update(patch).eq("id", sup.id);
       } else {
         const ins = await db.from("suppliers").insert({ name, field: a.supplier_field || null, phone: a.supplier_phone || null }).select("id,name").maybeSingle();
-        if (ins.error || !ins.data) return "לא הצלחתי לשמור את הספק.";
-        sup = ins.data; created = true;
+        if (ins.error) return "לא הצלחתי לשמור את הספק.";
+        sup = ins.data || (await supplierByName(name));
+        if (!sup) return "לא הצלחתי לשמור את הספק.";
+        created = true;
       }
       let linked = "";
       if (a.project_name && proj) {
@@ -176,22 +192,3 @@
       if (proj && a.project_name) q = q.eq("project_id", proj.id);
       const { data } = await q.limit(30);
       if (!data?.length) return "אין הזמנות פתוחות.";
-      return "הזמנות פתוחות:\n" + data.map((o: any) => `• ${o.item} (${pNames[o.project_id] || ""}) · ${o.status}`).join("\n");
-    }
-    // ----- documentation -----
-    case "add_doc": {
-      if (!proj) return needProj;
-      if (!mediaPath) return L(c, "שלח תמונה או וידאו עם הכיתוב.", "أرسل صورة أو فيديو مع وصف.");
-      const title = String(a.title || "").trim() || "תיעוד";
-      const stage = STAGES.includes(a.stage) ? a.stage : null;
-      const { error } = await db.from("docs").insert({ project_id: proj.id, title, stage, note: a.note || null, photo: mediaPath, date: ymd(il()) });
-      if (error) return L(c, "לא הצלחתי לשמור את התיעוד.", "تعذّر حفظ التوثيق.");
-      if (c.role === "worker") await pushTo(await bossIds(), `${c.name || "פועל"} שלח תיעוד`, `${title} · ${proj.name}`);
-      return L(c, `נשמר ✓ תיעוד ב"${proj.name}": ${title}${stage ? " · " + stage : ""}${isVideo ? " · וידאו" : ""}`, `تم الحفظ ✓ ${proj.name}: ${title}`);
-    }
-    case "add_supplier_doc": {
-      if (!proj) return needProj;
-      if (!mediaPath) return "שלח תמונה או וידאו של התעודה.";
-      const s = await supplierByName(a.supplier_name);
-      if (!s) return "לא זיהיתי את הספק. כתוב את שמו בכיתוב.";
-      const kind = a.kind === "תיעוד" ? "תיעוד" : "תעודת משלוח";

@@ -1,3 +1,22 @@
+      return "הזמנות פתוחות:\n" + data.map((o: any) => `• ${o.item} (${pNames[o.project_id] || ""}) · ${o.status}`).join("\n");
+    }
+    // ----- documentation -----
+    case "add_doc": {
+      if (!proj) return needProj;
+      if (!mediaPath) return L(c, "שלח תמונה או וידאו עם הכיתוב.", "أرسل صورة أو فيديو مع وصف.");
+      const stage = STAGES.includes(a.stage) ? a.stage : "אחר";
+      const title = String(a.title || "").trim() || stage;
+      const { error } = await db.from("docs").insert({ project_id: proj.id, title, stage, note: a.note || null, photo: mediaPath, date: ymd(il()) });
+      if (error) return L(c, "לא הצלחתי לשמור את התיעוד.", "تعذّر حفظ التوثيق.");
+      if (c.role === "worker") await pushTo(await bossIds(), `${c.name || "פועל"} שלח תיעוד`, `${title} · ${proj.name}`);
+      return L(c, `נשמר ✓ תיעוד ב"${proj.name}": ${title}${stage ? " · " + stage : ""}${isVideo ? " · וידאו" : ""}`, `تم الحفظ ✓ ${proj.name}: ${title}`);
+    }
+    case "add_supplier_doc": {
+      if (!proj) return needProj;
+      if (!mediaPath) return "שלח תמונה או וידאו של התעודה.";
+      const s = await supplierByName(a.supplier_name);
+      if (!s) return "לא זיהיתי את הספק. כתוב את שמו בכיתוב.";
+      const kind = a.kind === "תיעוד" ? "תיעוד" : "תעודת משלוח";
       const { error } = await db.from("supplier_docs").insert({ project_id: proj.id, supplier_id: s.id, kind, title: a.title || null, note: a.note || null, photo: mediaPath, date: ymd(il()) });
       if (error) return "לא הצלחתי לשמור.";
       await db.from("project_suppliers").upsert({ project_id: proj.id, supplier_id: s.id }, { onConflict: "project_id,supplier_id" });
@@ -230,9 +249,3 @@ Deno.serve(async (req) => {
     if (msgs.length) {
       const job = processMessages(msgs);
       // @ts-ignore EdgeRuntime exists on Supabase
-      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) EdgeRuntime.waitUntil(job);
-      else await job;
-    }
-  } catch (_e) { /* always 200 to Meta */ }
-  return new Response("ok", { headers: CORS });
-});

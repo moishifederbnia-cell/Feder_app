@@ -42,7 +42,7 @@ function b64(buf: Uint8Array) {
 }
 
 // ---------- dates ----------
-const STAGES = ["שלד", "אינסטלציה", "חשמל", "איטום", "טיח", "ריצוף", "גמר", "אחר"];
+const STAGES = ["חשמל", "אינסטלציה", "איטום", "ריצוף", "בנייה", "הריסה", "משימה", "אחר"];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{1,2}:\d{2}$/;
 function ymd(d: Date) {
@@ -237,7 +237,7 @@ function actTool(actions: string[]) {
         pay: { type: "string", enum: ["מזומן", "אשראי", ""] },
         date: { type: "string", description: "Date YYYY-MM-DD if stated/visible, else empty" },
         note: { type: "string" },
-        stage: { type: "string", description: "Work stage: שלד, אינסטלציה, חשמל, איטום, טיח, ריצוף, גמר, אחר" },
+        stage: { type: "string", description: "Trade/area: חשמל, אינסטלציה, איטום, ריצוף, בנייה, הריסה, משימה, אחר" },
         last: { type: "boolean", description: "The user means the latest/last one" },
         supplier_name: { type: "string" }, supplier_field: { type: "string" }, supplier_phone: { type: "string" },
         kind: { type: "string", enum: ["תעודת משלוח", "תיעוד"], description: "add_supplier_doc kind" },
