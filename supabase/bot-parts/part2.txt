@@ -131,12 +131,15 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
 
   // timed task: reminder before the time; if cal=true (a meeting) also a calendar event
   const mkTimed = async (title: string, date: string, timeIn: string, projId: string | null, remindIn: any, cal: boolean, extraUsers: string[], taskId: string): Promise<string> => {
+    let evLinked = false;
     const time = timeIn.padStart(5, "0");
     const startIso = ilToUtc(date, time);
     const id = crypto.randomUUID();
     if (cal) {
       const { error } = await db.from("events").insert({ id, title, start_at: startIso, end_at: new Date(Date.parse(startIso) + 3600000).toISOString(), all_day: false, project_id: projId, location: null, notes: null });
       if (error) return "";
+      evLinked = true;
+      await db.from("tasks").update({ event_id: id, kind: "פגישה" }).eq("id", taskId);
     }
     const rm = remindIn === undefined || remindIn === null ? 30 : Number(remindIn);
     const label = cal ? " 📅 ביומן " + time : " ⏰ " + time;
@@ -144,7 +147,7 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
       const when = new Date(Date.parse(startIso) - rm * 60000);
       if (when.getTime() > Date.now()) {
         const ids = Array.from(new Set([...(await bossIds()), ...extraUsers.filter(Boolean)]));
-        if (ids.length) await db.from("reminders").insert(ids.map((u: string) => ({ user_id: u, ref: (cal ? "ev:" + id : "tk:" + taskId) + ":" + u.slice(0, 6), title, body: "בשעה " + time, remind_at: when.toISOString() })));
+        if (ids.length) await db.from("reminders").insert(ids.map((u: string) => ({ user_id: u, ref: "task:" + taskId + ":" + u.slice(0, 6), title, body: "בשעה " + time, remind_at: when.toISOString() })));
         return label + " · תזכורת " + (rm ? rm + " דק' לפני" : "בזמן");
       }
     }
