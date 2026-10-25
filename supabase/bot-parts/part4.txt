@@ -119,8 +119,40 @@ async function handleContacts(c: Ctx, contacts: any[]): Promise<string> {
   return "קיבלתי: " + list.map((x: any) => `${x.name} ${x.phone}`.trim()).join(" ; ") + "\nמה לעשות איתו? למשל: \"תשמור כספק אלומיניום ותשייך לפרויקט הזולאי\" (או 'בטל').";
 }
 
+// ---------- voice notes (speech to text) ----------
+const STT_KEY = Deno.env.get("STT_KEY") || "";
+const STT_PROVIDER = (Deno.env.get("STT_PROVIDER") || "groq").toLowerCase();
+const STT_MODEL = Deno.env.get("STT_MODEL") || (STT_PROVIDER === "openai" ? "gpt-4o-transcribe" : "whisper-large-v3");
+async function transcribe(buf: Uint8Array, mime: string, hint: string): Promise<string> {
+  const ext = /ogg|opus/i.test(mime) ? "ogg" : /mp4|m4a|aac/i.test(mime) ? "m4a" : /mpeg|mp3/i.test(mime) ? "mp3" : /wav/i.test(mime) ? "wav" : /webm/i.test(mime) ? "webm" : "ogg";
+  const url = STT_PROVIDER === "openai" ? "https://api.openai.com/v1/audio/transcriptions" : "https://api.groq.com/openai/v1/audio/transcriptions";
+  const fd = new FormData();
+  fd.append("file", new Blob([buf], { type: mime.split(";")[0] || "audio/ogg" }), `voice.${ext}`);
+  fd.append("model", STT_MODEL);
+  fd.append("response_format", "json");
+  fd.append("temperature", "0");
+  if (hint) fd.append("prompt", hint.slice(0, 700));
+  const res = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${STT_KEY}` }, body: fd });
+  if (!res.ok) throw new Error("stt " + res.status);
+  const j = await res.json();
+  return String(j.text || "").trim();
+}
+async function handleAudio(c: Ctx, id: string): Promise<string> {
+  if (!STT_KEY) return L(c, "תמלול הודעות קוליות עדיין לא הופעל. כתוב לי בטקסט.", "الرسائل الصوتية غير مفعّلة بعد، اكتب لي نصاً.");
+  const dm = await downloadMedia(id);
+  if (!dm) return L(c, "לא הצלחתי לקבל את ההקלטה. נסה שוב.", "تعذّر استلام التسجيل، حاول مرة أخرى.");
+  if (dm.buf.length > 24 * 1024 * 1024) return L(c, "ההקלטה ארוכה מדי. שלח קצרה יותר.", "التسجيل طويل جداً، أرسل تسجيلاً أقصر.");
+  const { data: pr } = await db.from("projects").select("name");
+  const hint = "הודעה קולית של מנהל עבודה בחברת בנייה בישראל. פרויקטים: " + (pr || []).map((p: any) => p.name).join(", ") + ". אנשי צוות: " + c.team.map((m: any) => m.name).join(", ") + ". מילים: משימה, פגישה, בטון, טיח, ריצוף, שפכטל, אינסטלציה, חשמל, איטום, קבלה, ספק.";
+  let text = "";
+  try { text = await transcribe(dm.buf, dm.mime, hint); } catch (_e) { return L(c, "התמלול נכשל. נסה שוב או כתוב בטקסט.", "فشل التفريغ، حاول مرة أخرى أو اكتب نصاً."); }
+  if (text.replace(/[\s.,!?]/g, "").length < 2) return L(c, "לא שמעתי כלום בהקלטה.", "لم أسمع شيئاً في التسجيل.");
+  const out = await route(c, text, null, true);
+  return `🎤 ${L(c, "שמעתי", "سمعت")}: "${text.slice(0, 600)}"\n\n${out}`;
+}
+
 // ---------- routing ----------
-async function route(c: Ctx, text: string, media: { id: string; video: boolean } | null): Promise<string> {
+async function route(c: Ctx, text: string, media: { id: string; video: boolean } | null, voice = false): Promise<string> {
   const t = text.trim();
   // contact waiting for an instruction
   let tt = t;
@@ -161,7 +193,7 @@ async function route(c: Ctx, text: string, media: { id: string; video: boolean }
     if (!path) return L(c, "לא הצלחתי לקבל את הקובץ. נסה שוב.", "تعذّر استلام الملف، حاول مرة أخرى.");
   }
   if (AI_KEY) {
-    try { return await handleAI(c, tt, m, !!media?.video, path); } catch (_e) { /* fall back */ }
+    try { return await handleAI(c, voice ? tt + "\n[הערה: הטקסט תומלל אוטומטית מהודעה קולית, ייתכנו טעויות שמיעה בשמות ובמילים. תקן לפי רשימות הפרויקטים והצוות.]" : tt, m, !!media?.video, path); } catch (_e) { /* fall back */ }
   }
   return await handleRules(c, tt, path);
 }
@@ -180,6 +212,7 @@ async function processMessages(msgs: any[]) {
       if (m.type === "text") out = await route(c, m.text?.body || "", null);
       else if (m.type === "image") out = await route(c, m.image?.caption || "", { id: m.image.id, video: false });
       else if (m.type === "video") out = await route(c, m.video?.caption || "", { id: m.video.id, video: true });
+      else if (m.type === "audio") out = await handleAudio(c, m.audio.id);
       else if (m.type === "contacts") out = await handleContacts(c, m.contacts || []);
       else if (m.type === "document") out = await handleDocument(c, m.document?.caption || "", m.document.id, m.document?.filename || "");
       else out = L(c, "אני מבין טקסט, תמונות, וידאו וקבצים בלבד.", "أفهم النصوص والصور والفيديو والملفات فقط.");
@@ -218,15 +251,3 @@ Deno.serve(async (req) => {
       const tTodo = (tk || []).filter((x: any) => !x.title_ar);
       done += await translateRows("tasks", tTodo.slice(0, 60));
       remaining += Math.max(0, tTodo.length - 60);
-      return jres({ ok: true, translated: done, remaining });
-    }
-    const msgs = body?.entry?.[0]?.changes?.[0]?.value?.messages || [];
-    if (msgs.length) {
-      const job = processMessages(msgs);
-      // @ts-ignore EdgeRuntime exists on Supabase
-      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) EdgeRuntime.waitUntil(job);
-      else await job;
-    }
-  } catch (_e) { /* always 200 to Meta */ }
-  return new Response("ok", { headers: CORS });
-});
