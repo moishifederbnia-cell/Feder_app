@@ -217,7 +217,8 @@ function actTool(actions: string[]) {
               title_ar: { type: "string", description: "The same task translated to clear Arabic" },
               due: { type: "string", description: "YYYY-MM-DD or empty" },
               assignee: { type: "string", description: "Team member name exactly as in the team list, or empty" },
-              time: { type: "string", description: "HH:MM if the task is a meeting/appointment at a specific time (then it is saved as a task AND a calendar event with a reminder)" },
+              time: { type: "string", description: "HH:MM only if a specific time was stated for the task (reminder 30 min before is created). No time stated => leave empty, no reminder." },
+              meeting: { type: "boolean", description: "true only if the user calls it a meeting / פגישה / מפגש: then it is also saved as a calendar event" },
               decision: { type: "boolean", description: "true if the task is waiting for a decision (ממתין להחלטה / צריך להחליט)" },
             },
             required: ["title"],
@@ -248,10 +249,3 @@ function actTool(actions: string[]) {
         group_by: { type: "string", enum: ["vendor", "pay", "none"], description: "expense_summary grouping" },
         period: { type: "string", enum: ["week", "month", "all"], description: "expense_summary period" },
         address: { type: "string" }, client_name: { type: "string" },
-        reply: { type: "string", description: "For action=chat: short answer or a question asking for the missing detail" },
-      },
-      required: ["action"],
-    },
-  };
-}
-
