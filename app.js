@@ -270,7 +270,8 @@ var I={play:'<polygon points="6 4 20 12 6 20 6 4" fill="currentColor"/>',
  box:'<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v9"/>',
  plan:'<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>',
  truck:'<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>',
- chat:'<path d="M4 5h16v11H9l-5 4z"/>'
+ chat:'<path d="M4 5h16v11H9l-5 4z"/>',
+ report:'<path d="M5 20V10M11 20V4M17 20v-7"/>'
 };
 function ico(n,s){s=s||22;return '<svg width="'+s+'" height="'+s+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+I[n]+'</svg>';}
 
@@ -365,12 +366,12 @@ function vHome(){
   var h=bandHtml('שלום'+(first?', '+first:''),dateStr,{right:'<div style="display:flex;align-items:center;gap:10px">'+bellBtn()+'<img class="logo" src="'+LOGO+'" alt="פדר - לבנות בראש שקט"></div>'});
   h+='<main class="wrap">';
   var doneN=S.tasks.filter(function(t){return t.status==='הושלם';}).length;
-  h+='<div class="grid2 pull"><button class="card stat" style="text-align:start;cursor:pointer" data-act="tasksby" data-v="done"><div class="k">משימות שהושלמו</div><div class="v">'+doneN+'</div></button>'+
-     '<button class="card stat" style="text-align:start;cursor:pointer" data-act="tasksby" data-v="open"><div class="k">משימות שלא הושלמו</div><div class="v">'+openT.length+'</div></button></div>';
-  h+='<div class="grid3" style="margin-top:14px">'+
-     '<button class="act a1" data-act="add" data-e="expense">'+ico('camera',30)+'צלם קבלה</button>'+
-     '<button class="act a2" data-act="add" data-e="task">'+ico('plus',30)+'משימה חדשה</button>'+
-     '<button class="act a3" data-act="add" data-e="doc">'+ico('image',30)+'תיעוד</button></div>';
+  h+='<div class="pull hrow"><div class="hstats"><button class="hstat" data-act="tasksby" data-v="open" aria-label="משימות שלא הושלמו"><b>'+openT.length+'</b><span>פתוחות</span></button><button class="hstat ok" data-act="tasksby" data-v="done" aria-label="משימות שהושלמו"><b>'+doneN+'</b><span>הושלמו</span></button></div></div>';
+  h+='<div class="pgrid hacts">'+
+     '<button class="pic" data-act="add" data-e="expense"><span class="pcirc act">'+ico('receipt',28)+'</span><span class="plab">קבלה</span></button>'+
+     '<button class="pic" data-act="add" data-e="task"><span class="pcirc act">'+ico('plus',28)+'</span><span class="plab">משימה</span></button>'+
+     '<button class="pic" data-act="add" data-e="doc"><span class="pcirc act">'+ico('camera',28)+'</span><span class="plab">תיעוד</span></button>'+
+     '<button class="pic" data-act="reportall"><span class="pcirc act">'+ico('report',28)+'</span><span class="plab">דוחות</span></button></div>';
   if(toOrder){h+='<div class="card" style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span><b>'+toOrder+'</b> פריטים עדיין לא הוזמנו</span><button class="link" data-act="nav" data-v="projects">לפרויקטים</button></div>';}
   var todayEv=allEvents().filter(function(e){return e.date===todayStr();}).sort(evSort);
   var tdy=todayStr(),tmr=ymd(new Date(Date.now()+86400000));
@@ -395,7 +396,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 37</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 38</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -611,7 +612,7 @@ function repTasks(title,list,cls,kind){
   var isDone=kind==='done';
   return '<h2 class="'+cls+'">'+esc(title)+' ('+list.length+')</h2><table class="rt"><thead><tr><th>משימה</th><th class="rd">יעד</th>'+(isDone?'<th class="rd">בוצע ב</th>':'')+'<th class="rd">מצב</th></tr></thead><tbody>'+list.map(function(t){
     var st=taskState(t);
-    return '<tr><td>'+esc(t.title)+(t.notes?'<div class="rn">'+esc(t.notes)+'</div>':'')+'</td><td class="rd">'+(t.due?esc(fdate(t.due)):'')+'</td>'+(isDone?'<td class="rd">'+(t.doneDate?esc(fdate(t.doneDate)):'')+'</td>':'')+'<td class="rd st '+st.cls+'">'+esc(st.txt)+'</td></tr>';}).join('')+'</tbody></table>';
+    return '<tr><td>'+esc(t.title)+(t.notes?'<div class="rn">'+esc(t.notes)+'</div>':'')+(t.photo&&!isVid(t.photo)&&UI.repPhotos!==false?'<img class="rtimg" src="'+purl(t.photo)+'" alt="">':'')+'</td><td class="rd">'+(t.due?esc(fdate(t.due)):'')+'</td>'+(isDone?'<td class="rd">'+(t.doneDate?esc(fdate(t.doneDate)):'')+'</td>':'')+'<td class="rd st '+st.cls+'">'+esc(st.txt)+'</td></tr>';}).join('')+'</tbody></table>';
 }
 function repPerson(p){
   var pid=UI.reportPerson||'',openOnly=UI.repOpen!==false;
@@ -631,7 +632,7 @@ function repPerson(p){
     var open=list.filter(function(t){return t.status!=='הושלם';}).length;
     h+='<h2>'+esc(m.name)+' · '+open+' פתוחות'+(openOnly?'':' מתוך '+list.length)+'</h2><table class="rt"><thead><tr><th>משימה</th>'+(p?'':'<th>פרויקט</th>')+'<th class="rd">יעד</th><th class="rd">מצב</th></tr></thead><tbody>'+list.map(function(t){
       var st=taskState(t);
-      return '<tr><td>'+(t.kind==='פגישה'?'(פגישה) ':'')+esc(t.title)+(t.notes?'<div class="rn">'+esc(t.notes)+'</div>':'')+'</td>'+(p?'':'<td>'+esc(pname(t.projectId))+'</td>')+'<td class="rd">'+(t.due?esc(fdate(t.due))+(t.due_time?' '+esc(t.due_time):''):'')+'</td><td class="rd st '+st.cls+'">'+esc(t.status==='ממתין להחלטה'?'ממתין להחלטה':st.txt)+'</td></tr>';}).join('')+'</tbody></table>';
+      return '<tr><td>'+(t.kind==='פגישה'?'(פגישה) ':'')+esc(t.title)+(t.notes?'<div class="rn">'+esc(t.notes)+'</div>':'')+(t.photo&&!isVid(t.photo)&&UI.repPhotos!==false?'<img class="rtimg" src="'+purl(t.photo)+'" alt="">':'')+'</td>'+(p?'':'<td>'+esc(pname(t.projectId))+'</td>')+'<td class="rd">'+(t.due?esc(fdate(t.due))+(t.due_time?' '+esc(t.due_time):''):'')+'</td><td class="rd st '+st.cls+'">'+esc(t.status==='ממתין להחלטה'?'ממתין להחלטה':st.txt)+'</td></tr>';}).join('')+'</tbody></table>';
   });
   if(!any)h+='<p>אין משימות להצגה.</p>';
   return h;
@@ -708,7 +709,7 @@ function vReport(){
   h+='<main class="wrap" style="'+PULL+'"><div class="card noprint"><div class="fld"><label for="rproj" class="sr">פרויקט</label><select id="rproj" data-sel="reportProject"><option value="">כל הפרויקטים</option>'+sortedProjects().map(function(q){return '<option value="'+esc(q.id)+'"'+(UI.reportProject===q.id?' selected':'')+'>'+esc(q.name)+'</option>';}).join('')+'</select></div><div class="filters" style="padding-top:0">'+
     '<button class="fchip" data-act="rtype" data-v="field" aria-pressed="'+(type==='field')+'">מצב באתר</button><button class="fchip" data-act="rtype" data-v="tasks" aria-pressed="'+(type==='tasks')+'">משימות לפי אדם</button><button class="fchip" data-act="rtype" data-v="fin" aria-pressed="'+(type==='fin')+'">דוח קבלות והוצאות</button></div>'+
     (type==='tasks'?'<div class="fld"><label for="rper">אדם</label><select id="rper" data-sel="reportPerson"><option value="">כולם</option>'+S.team_members.map(function(m){return '<option value="'+esc(m.id)+'"'+(UI.reportPerson===m.id?' selected':'')+'>'+esc(m.name)+'</option>';}).join('')+'<option value="none"'+(UI.reportPerson==='none'?' selected':'')+'>ללא אחראי</option></select></div><label class="chk"><input type="checkbox" data-ro="1"'+(UI.repOpen!==false?' checked':'')+'> רק משימות פתוחות</label>':'')+
-    (type==='field'&&p?'<label class="chk"><input type="checkbox" data-rp="1"'+(UI.repPhotos!==false?' checked':'')+'> לכלול תמונות מהשטח</label>':'')+
+    ((type==='field'&&p)||type==='tasks'?'<label class="chk"><input type="checkbox" data-rp="1"'+(UI.repPhotos!==false?' checked':'')+'> לכלול תמונות מהשטח</label>':'')+
     '<div class="fld" style="margin-top:6px"><label for="rn_intro">הערות כלליות (בראש הדוח)</label><textarea id="rn_intro" data-rn="intro" placeholder="למשל: סיכום תקופה, עדכון ללקוח...">'+esc(noteGet('intro'))+'</textarea></div>'+
     '<div class="fld"><label for="rn_outro">סיכום והמלצות (בסוף הדוח)</label><textarea id="rn_outro" data-rn="outro" placeholder="הצעדים הבאים, הערות...">'+esc(noteGet('outro'))+'</textarea></div>'+
     '<button class="btn btn-accent" style="width:100%;margin-top:6px" data-act="print">שמור כ-PDF / שתף</button>'+
@@ -824,7 +825,7 @@ function vWorker(){
     h+='<div style="text-align:center;margin:18px 0 6px"><button class="link" data-act="wshowdone">'+(WK.showDone?'إخفاء المنجزة':'عرض المهام المنجزة ('+done.length+')')+'</button></div>';
     if(WK.showDone)h+='<div class="stack">'+done.map(row).join('')+'</div>';
   }
-  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v37</div></main>';
+  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v38</div></main>';
 }
 function vAccountant(){
   var list=S.expenses.filter(function(x){return !UI.expProject||x.projectId===UI.expProject;});
