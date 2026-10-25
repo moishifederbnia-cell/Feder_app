@@ -244,3 +244,14 @@ function actTool(actions: string[]) {
         status: { type: "string", description: "Order status (לא הוזמן/הוזמן/הגיע) or project status (בהתחלה/בביצוע/סיום)" },
         time: { type: "string", description: "Event start HH:MM (24h) or empty for all-day" },
         end_time: { type: "string" }, location: { type: "string" },
+        remind_minutes: { type: "number", description: "Minutes before the event to remind; -1 for none; default 30" },
+        group_by: { type: "string", enum: ["vendor", "pay", "none"], description: "expense_summary grouping" },
+        period: { type: "string", enum: ["week", "month", "all"], description: "expense_summary period" },
+        address: { type: "string" }, client_name: { type: "string" },
+        reply: { type: "string", description: "For action=chat: short answer or a question asking for the missing detail" },
+      },
+      required: ["action"],
+    },
+  };
+}
+

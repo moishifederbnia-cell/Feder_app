@@ -1,14 +1,3 @@
-        remind_minutes: { type: "number", description: "Minutes before the event to remind; -1 for none; default 30" },
-        group_by: { type: "string", enum: ["vendor", "pay", "none"], description: "expense_summary grouping" },
-        period: { type: "string", enum: ["week", "month", "all"], description: "expense_summary period" },
-        address: { type: "string" }, client_name: { type: "string" },
-        reply: { type: "string", description: "For action=chat: short answer or a question asking for the missing detail" },
-      },
-      required: ["action"],
-    },
-  };
-}
-
 function systemPrompt(c: Ctx, projects: any[]) {
   const d = il();
   const wd = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"][d.getDay()];
@@ -205,3 +194,15 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
       const reopen = a.action === "reopen_task";
       const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, reopen);
       if (!hits.length) return L(c, "לא מצאתי משימה כזאת.", "لم أجد هذه المهمة.");
+      if (hits.length > 1) return L(c, "מצאתי כמה משימות:\n", "وجدت عدة مهام:\n") + hits.slice(0, 6).map((t: any) => "• " + tTitle(t, c)).join("\n") + L(c, "\nכתוב את השם המדויק של אחת מהן.", "\nاكتب الاسم الدقيق لإحداها.");
+      const t = hits[0];
+      const { error } = await db.from("tasks").update(reopen ? { status: "לביצוע", done_at: null } : { status: "הושלם", done_at: new Date().toISOString() }).eq("id", t.id);
+      if (error) return L(c, "לא הצלחתי לעדכן.", "تعذّر التحديث.");
+      if (c.role === "worker" && !reopen) await pushTo(await bossIds(), `${c.name || "פועל"} סגר משימה`, `${t.title} · ${pNames[t.project_id] || ""}`);
+      return reopen ? L(c, `נפתחה מחדש ✓ "${t.title}"`, `أُعيد فتحها ✓ "${tTitle(t, c)}"`) : L(c, `נשמר ✓ "${t.title}" סומנה כבוצעה.`, `تم ✓ "${tTitle(t, c)}"`);
+    }
+    case "edit_task": {
+      const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, false);
+      if (!hits.length) return "לא מצאתי משימה פתוחה כזאת.";
+      if (hits.length > 1) return "מצאתי כמה משימות:\n" + hits.slice(0, 6).map((t: any) => "• " + t.title).join("\n") + "\nכתוב את השם המדויק.";
+      const t = hits[0]; const patch: any = {}; const parts: string[] = [];

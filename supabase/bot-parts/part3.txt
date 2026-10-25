@@ -1,15 +1,3 @@
-      if (hits.length > 1) return L(c, "מצאתי כמה משימות:\n", "وجدت عدة مهام:\n") + hits.slice(0, 6).map((t: any) => "• " + tTitle(t, c)).join("\n") + L(c, "\nכתוב את השם המדויק של אחת מהן.", "\nاكتب الاسم الدقيق لإحداها.");
-      const t = hits[0];
-      const { error } = await db.from("tasks").update(reopen ? { status: "לביצוע", done_at: null } : { status: "הושלם", done_at: new Date().toISOString() }).eq("id", t.id);
-      if (error) return L(c, "לא הצלחתי לעדכן.", "تعذّر التحديث.");
-      if (c.role === "worker" && !reopen) await pushTo(await bossIds(), `${c.name || "פועל"} סגר משימה`, `${t.title} · ${pNames[t.project_id] || ""}`);
-      return reopen ? L(c, `נפתחה מחדש ✓ "${t.title}"`, `أُعيد فتحها ✓ "${tTitle(t, c)}"`) : L(c, `נשמר ✓ "${t.title}" סומנה כבוצעה.`, `تم ✓ "${tTitle(t, c)}"`);
-    }
-    case "edit_task": {
-      const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, false);
-      if (!hits.length) return "לא מצאתי משימה פתוחה כזאת.";
-      if (hits.length > 1) return "מצאתי כמה משימות:\n" + hits.slice(0, 6).map((t: any) => "• " + t.title).join("\n") + "\nכתוב את השם המדויק.";
-      const t = hits[0]; const patch: any = {}; const parts: string[] = [];
       if (a.new_title) { patch.title = a.new_title; patch.title_ar = a.new_title_ar || null; parts.push(`טקסט: ${a.new_title}`); }
       if (DATE_RE.test(a.due || "")) { patch.due = a.due; parts.push(`תאריך: ${fmtD(a.due)}`); }
       let mem: any = null;
@@ -187,3 +175,28 @@
       const title = String(a.title || "").trim() || "תיעוד";
       const stage = STAGES.includes(a.stage) ? a.stage : null;
       const { error } = await db.from("docs").insert({ project_id: proj.id, title, stage, note: a.note || null, photo: mediaPath, date: ymd(il()) });
+      if (error) return L(c, "לא הצלחתי לשמור את התיעוד.", "تعذّر حفظ التوثيق.");
+      if (c.role === "worker") await pushTo(await bossIds(), `${c.name || "פועל"} שלח תיעוד`, `${title} · ${proj.name}`);
+      return L(c, `נשמר ✓ תיעוד ב"${proj.name}": ${title}${stage ? " · " + stage : ""}${isVideo ? " · וידאו" : ""}`, `تم الحفظ ✓ ${proj.name}: ${title}`);
+    }
+    case "add_supplier_doc": {
+      if (!proj) return needProj;
+      if (!mediaPath) return "שלח תמונה או וידאו של התעודה.";
+      const s = await supplierByName(a.supplier_name);
+      if (!s) return "לא זיהיתי את הספק. כתוב את שמו בכיתוב.";
+      const kind = a.kind === "תיעוד" ? "תיעוד" : "תעודת משלוח";
+      const { error } = await db.from("supplier_docs").insert({ project_id: proj.id, supplier_id: s.id, kind, title: a.title || null, note: a.note || null, photo: mediaPath, date: ymd(il()) });
+      if (error) return "לא הצלחתי לשמור.";
+      await db.from("project_suppliers").upsert({ project_id: proj.id, supplier_id: s.id }, { onConflict: "project_id,supplier_id" });
+      return `נשמר ✓ ${kind} של ${s.name} ב"${proj.name}"`;
+    }
+    // ----- calendar -----
+    case "add_event": {
+      const title = String(a.title || "").trim();
+      if (!title) return "מה האירוע?";
+      if (!DATE_RE.test(a.due || a.date || "")) return "באיזה תאריך?";
+      const date = DATE_RE.test(a.due || "") ? a.due : a.date;
+      const hasTime = TIME_RE.test(a.time || "");
+      const time = hasTime ? a.time.padStart(5, "0") : "";
+      const startIso = hasTime ? ilToUtc(date, time) : ilToUtc(date, "00:00");
+      let endIso: string | null = null;
