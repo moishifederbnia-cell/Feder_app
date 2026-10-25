@@ -702,9 +702,47 @@ async function handleRules(c: Ctx, text: string, mediaPath: string | null): Prom
   return helpText(c) + "\n(הבינה המלאכותית לא זמינה כרגע, נסה שוב.)";
 }
 
+// ---------- documents (plans / files) ----------
+async function peekPending(from: string): Promise<any | null> {
+  const { data } = await db.from("bot_pending").select("payload,created_at").eq("phone", from).maybeSingle();
+  if (!data || Date.now() - Date.parse(data.created_at) > 15 * 60 * 1000) return null;
+  return data.payload;
+}
+async function savePlanRec(rec: any, proj: any): Promise<string> {
+  const { error } = await db.from("plans").insert({ project_id: proj.id, title: rec.title, file_path: rec.path, file_name: rec.name, file_type: rec.ext });
+  return error ? "לא הצלחתי לשמור את הקובץ." : `נשמר ✓ בתוכניות של "${proj.name}": ${rec.title}`;
+}
+async function handleDocument(c: Ctx, caption: string, id: string, filename: string): Promise<string> {
+  if (c.role !== "staff") return L(c, "אין לך הרשאה לשלוח קבצים.", "غير مسموح لك بإرسال الملفات.");
+  const dm = await downloadMedia(id);
+  if (!dm) return "לא הצלחתי לקבל את הקובץ. נסה שוב.";
+  const ext = ((filename.match(/\.([A-Za-z0-9]{1,6})$/) || [])[1] || (dm.mime.includes("pdf") ? "pdf" : "bin")).toLowerCase();
+  const path = `plans/wa/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+  const up = await db.storage.from("photos").upload(path, dm.buf, { contentType: dm.mime || "application/octet-stream" });
+  if (up.error) return "לא הצלחתי לשמור את הקובץ.";
+  const base = (filename || "").replace(/\.[^.]+$/, "").trim();
+  const rec = { kind: "plan_file", path, name: filename || `file.${ext}`, ext, title: base || caption.trim() || "תוכנית" };
+  const { data: pr } = await db.from("projects").select("id,name");
+  const proj = matchProject("", caption, pr || []);
+  if (proj) return await savePlanRec(rec, proj);
+  await savePending(c.from, rec);
+  return "קיבלתי את הקובץ. לאיזה פרויקט לשייך? (" + (pr || []).map((p: any) => p.name).join(", ") + ")\nאפשר לכתוב 'בטל'.";
+}
+
 // ---------- routing ----------
 async function route(c: Ctx, text: string, media: { id: string; video: boolean } | null): Promise<string> {
   const t = text.trim();
+  // file waiting for a project
+  if (c.role === "staff" && !media && t) {
+    const pp = await peekPending(c.from);
+    if (pp && pp.kind === "plan_file") {
+      if (NO.test(t)) { await db.from("bot_pending").delete().eq("phone", c.from); return "בוטל. הקובץ נשאר שמור ללא שיוך."; }
+      const { data: pr } = await db.from("projects").select("id,name");
+      const proj = t.length <= 60 ? matchProject(t, t, pr || []) : null;
+      if (proj) { await db.from("bot_pending").delete().eq("phone", c.from); return await savePlanRec(pp, proj); }
+      if (t.length <= 60) return "לא זיהיתי את הפרויקט. כתוב את שמו (" + (pr || []).map((p: any) => p.name).join(", ") + ") או 'בטל'.";
+    }
+  }
   // confirmations
   if (c.role === "staff") {
     if (YES.test(t) || NO.test(t)) {
@@ -742,7 +780,8 @@ async function processMessages(msgs: any[]) {
       if (m.type === "text") out = await route(c, m.text?.body || "", null);
       else if (m.type === "image") out = await route(c, m.image?.caption || "", { id: m.image.id, video: false });
       else if (m.type === "video") out = await route(c, m.video?.caption || "", { id: m.video.id, video: true });
-      else out = L(c, "אני מבין טקסט, תמונות ווידאו בלבד.", "أفهم النصوص والصور والفيديو فقط.");
+      else if (m.type === "document") out = await handleDocument(c, m.document?.caption || "", m.document.id, m.document?.filename || "");
+      else out = L(c, "אני מבין טקסט, תמונות, וידאו וקבצים בלבד.", "أفهم النصوص والصور والفيديو والملفات فقط.");
       await reply(from, out);
     } catch (_e) {
       try { await reply(from, "משהו השתבש, נסה שוב."); } catch (_e2) { /* ignore */ }
