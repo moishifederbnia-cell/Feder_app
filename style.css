@@ -251,5 +251,10 @@ i.lg{width:10px;height:10px}
 .hstat span{font-size:12.5px;font-weight:700;color:var(--muted);margin-top:3px}
 .hstat.ok b{color:var(--ok-ink)}
 .hacts{margin-top:14px}
-.pcirc.act{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.pcirc.hc{width:76px;height:76px;border:0;color:#fff;box-shadow:0 4px 10px rgba(31,42,56,.22)}
+.pcirc.hc.h1{background:#F7941D;color:#1F2A38}
+.pcirc.hc.h2{background:#384E69}
+.pcirc.hc.h3{background:#3E8E6A}
+.pcirc.hc.h4{background:#6B87A8}
+.hacts .plab{font-size:15px}
 .rtimg{display:block;max-width:220px;max-height:160px;margin-top:6px;border-radius:8px}

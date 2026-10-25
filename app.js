@@ -368,10 +368,10 @@ function vHome(){
   var doneN=S.tasks.filter(function(t){return t.status==='הושלם';}).length;
   h+='<div class="pull hrow"><div class="hstats"><button class="hstat" data-act="tasksby" data-v="open" aria-label="משימות שלא הושלמו"><b>'+openT.length+'</b><span>פתוחות</span></button><button class="hstat ok" data-act="tasksby" data-v="done" aria-label="משימות שהושלמו"><b>'+doneN+'</b><span>הושלמו</span></button></div></div>';
   h+='<div class="pgrid hacts">'+
-     '<button class="pic" data-act="add" data-e="expense"><span class="pcirc act">'+ico('receipt',28)+'</span><span class="plab">קבלה</span></button>'+
-     '<button class="pic" data-act="add" data-e="task"><span class="pcirc act">'+ico('plus',28)+'</span><span class="plab">משימה</span></button>'+
-     '<button class="pic" data-act="add" data-e="doc"><span class="pcirc act">'+ico('camera',28)+'</span><span class="plab">תיעוד</span></button>'+
-     '<button class="pic" data-act="reportall"><span class="pcirc act">'+ico('report',28)+'</span><span class="plab">דוחות</span></button></div>';
+     '<button class="pic" data-act="add" data-e="expense"><span class="pcirc hc h1">'+ico('receipt',28)+'</span><span class="plab">קבלה</span></button>'+
+     '<button class="pic" data-act="add" data-e="task"><span class="pcirc hc h2">'+ico('plus',28)+'</span><span class="plab">משימה</span></button>'+
+     '<button class="pic" data-act="add" data-e="doc"><span class="pcirc hc h3">'+ico('camera',28)+'</span><span class="plab">תיעוד</span></button>'+
+     '<button class="pic" data-act="reportall"><span class="pcirc hc h4">'+ico('report',28)+'</span><span class="plab">דוחות</span></button></div>';
   if(toOrder){h+='<div class="card" style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;gap:10px"><span><b>'+toOrder+'</b> פריטים עדיין לא הוזמנו</span><button class="link" data-act="nav" data-v="projects">לפרויקטים</button></div>';}
   var todayEv=allEvents().filter(function(e){return e.date===todayStr();}).sort(evSort);
   var tdy=todayStr(),tmr=ymd(new Date(Date.now()+86400000));
@@ -396,7 +396,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 38</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 39</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -825,7 +825,7 @@ function vWorker(){
     h+='<div style="text-align:center;margin:18px 0 6px"><button class="link" data-act="wshowdone">'+(WK.showDone?'إخفاء المنجزة':'عرض المهام المنجزة ('+done.length+')')+'</button></div>';
     if(WK.showDone)h+='<div class="stack">'+done.map(row).join('')+'</div>';
   }
-  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v38</div></main>';
+  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v39</div></main>';
 }
 function vAccountant(){
   var list=S.expenses.filter(function(x){return !UI.expProject||x.projectId===UI.expProject;});
