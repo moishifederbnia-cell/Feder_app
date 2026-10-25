@@ -1,3 +1,7 @@
+      const id = crypto.randomUUID();
+      const { error } = await db.from("events").insert({ id, title, start_at: startIso, end_at: endIso, all_day: !hasTime, project_id: proj && a.project_name ? proj.id : null, location: a.location || null, notes: a.note || null });
+      if (error) return "לא הצלחתי לשמור את האירוע.";
+      let remNote = "";
       const rm = a.remind_minutes === undefined || a.remind_minutes === null ? 30 : Number(a.remind_minutes);
       if (rm >= 0) {
         const base = hasTime ? Date.parse(startIso) : Date.parse(ilToUtc(date, "08:00"));

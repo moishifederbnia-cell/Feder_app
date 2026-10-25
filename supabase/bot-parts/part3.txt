@@ -1,3 +1,9 @@
+      await savePending(c.from, { kind: "edit_task", id: t.id, patch, label, title_for_push: a.new_title || t.title, title_ar_for_push: a.new_title_ar || t.title_ar || null, project_name: pNames[t.project_id] });
+      return `לשנות ${label}?\nכתוב "כן" לאישור.`;
+    }
+    case "delete_task": {
+      const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, false);
+      if (!hits.length) return "לא מצאתי משימה פתוחה כזאת.";
       if (hits.length > 1) return "מצאתי כמה משימות:\n" + hits.slice(0, 6).map((t: any) => "• " + t.title).join("\n") + "\nכתוב את השם המדויק.";
       await savePending(c.from, { kind: "delete_task", id: hits[0].id, label: `המשימה "${hits[0].title}"` });
       return `למחוק את המשימה "${hits[0].title}"?\nכתוב "כן" לאישור.`;
@@ -189,7 +195,3 @@
       const startIso = hasTime ? ilToUtc(date, time) : ilToUtc(date, "00:00");
       let endIso: string | null = null;
       if (hasTime) endIso = TIME_RE.test(a.end_time || "") ? ilToUtc(date, a.end_time.padStart(5, "0")) : new Date(Date.parse(startIso) + 3600000).toISOString();
-      const id = crypto.randomUUID();
-      const { error } = await db.from("events").insert({ id, title, start_at: startIso, end_at: endIso, all_day: !hasTime, project_id: proj && a.project_name ? proj.id : null, location: a.location || null, notes: a.note || null });
-      if (error) return "לא הצלחתי לשמור את האירוע.";
-      let remNote = "";

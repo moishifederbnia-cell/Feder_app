@@ -217,6 +217,7 @@ function actTool(actions: string[]) {
               title_ar: { type: "string", description: "The same task translated to clear Arabic" },
               due: { type: "string", description: "YYYY-MM-DD or empty" },
               assignee: { type: "string", description: "Team member name exactly as in the team list, or empty" },
+              decision: { type: "boolean", description: "true if the task is waiting for a decision (ממתין להחלטה / צריך להחליט)" },
             },
             required: ["title"],
           },
@@ -227,7 +228,7 @@ function actTool(actions: string[]) {
         due: { type: "string", description: "YYYY-MM-DD (edit_task new due / event date) or empty" },
         assignee_name: { type: "string", description: "Team member (edit_task new assignee, or list_tasks filter)" },
         mine: { type: "boolean", description: "list_tasks: the sender asks about their own tasks (שלי / لي)" },
-        scope: { type: "string", enum: ["today", "tomorrow", "week", "overdue", "open", "done"], description: "list_tasks/list_events scope" },
+        scope: { type: "string", enum: ["today", "tomorrow", "week", "overdue", "open", "done", "decision"], description: "list_tasks/list_events scope" },
         amount: { type: "number" }, new_amount: { type: "number" },
         vendor: { type: "string", description: "Supplier/store name on an expense" },
         new_vendor: { type: "string" },
@@ -271,8 +272,8 @@ ${common}`;
   }
   return `אתה עוזר של מנהל עבודה בחברת בנייה (פדר בניה). הוא כותב לך בעברית קצרה מהשטח, לפעמים עם תמונת קבלה או תיעוד.
 בחר את הפעולה והמלא פרטים:
-- add_task: משימה חדשה (אפשר כמה, ב-tasks). לכל משימה: title בעברית, title_ar תרגום לערבית, due אם צוין, assignee אם שייך לאדם מהצוות ("תן לאבו יאסר...", "אמיתי ידאג ל...").
-- list_tasks: מה יש/פתוח/באיחור/להיום. scope: today (להיום, כולל באיחור), tomorrow, week, overdue, open, done. assignee_name אם שאל על אדם. mine=true אם שאל "מה יש לי".
+- add_task: משימה חדשה (אפשר כמה, ב-tasks). לכל משימה: title בעברית, title_ar תרגום לערבית, due אם צוין, assignee אם שייך לאדם מהצוות ("תן לאבו יאסר...", "אמיתי ידאג ל..."), decision=true אם זו משימה שממתינה להחלטה ("ממתין להחלטה", "צריך להחליט", "לחכות להחלטה").
+- list_tasks: מה יש/פתוח/באיחור/להיום. scope: today (להיום, כולל באיחור), tomorrow, week, overdue, open, done, decision (משימות שממתינות להחלטה). assignee_name אם שאל על אדם. mine=true אם שאל "מה יש לי".
 - complete_task / reopen_task: סגירה או פתיחה מחדש של משימה קיימת. title = מילים מזהות.
 - edit_task: שינוי משימה קיימת. title מזהה; new_title/new_title_ar, due, assignee_name לחדשים.
 - delete_task: מחיקת משימה. title מזהה.
@@ -388,7 +389,7 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
         const title = String(it.title || "").trim(); if (!title) continue;
         const due = DATE_RE.test(it.due || "") ? it.due : null;
         const mem = it.assignee ? matchMember(it.assignee, c.team) : null;
-        const row: any = { project_id: proj.id, title, title_ar: it.title_ar || null, due, status: "לביצוע", assignee_id: mem ? mem.id : null };
+        const row: any = { project_id: proj.id, title, title_ar: it.title_ar || null, due, status: (it.decision || a.decision) ? "ממתין להחלטה" : "לביצוע", assignee_id: mem ? mem.id : null };
         const { error } = await db.from("tasks").insert(row);
         if (error) { out.push("✗ " + title); continue; }
         out.push(`• ${title}${mem ? " ← " + mem.name : ""}${due ? " (עד " + fmtD(due) + ")" : ""}`);
@@ -401,8 +402,9 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
       const scope: string = a.scope || "open";
       let q = db.from("tasks").select("title,title_ar,due,status,project_id,assignee_id,done_at");
       if (scope === "done") q = q.eq("status", "הושלם").order("done_at", { ascending: false, nullsFirst: false });
+      else if (scope === "decision") q = q.eq("status", "ממתין להחלטה").order("due", { ascending: true, nullsFirst: false });
       else {
-        q = q.neq("status", "הושלם").order("due", { ascending: true, nullsFirst: false });
+        q = q.neq("status", "הושלם").neq("status", "ממתין להחלטה").order("due", { ascending: true, nullsFirst: false });
         if (scope === "today") q = q.lte("due", today);
         else if (scope === "tomorrow") q = q.eq("due", addDays(today, 1));
         else if (scope === "week") q = q.lte("due", addDays(today, 7));
