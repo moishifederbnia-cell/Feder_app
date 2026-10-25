@@ -395,7 +395,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 36</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 37</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -790,6 +790,10 @@ async function loadWorker(){
   var r=await sb.rpc('worker_tasks'),r2=await sb.rpc('worker_projects');
   if(!r.error&&!r2.error){WK.tasks=r.data||[];WK.projects=r2.data||[];WK.ok=true;WK.err=false;}else{WK.err=true;}
   render();
+  try{
+    var need=[];WK.tasks.forEach(function(t){if(t.photo&&!PHOTO[t.photo]&&need.indexOf(t.photo)<0)need.push(t.photo);});
+    if(need.length){var sr=await sb.storage.from('photos').createSignedUrls(need,21600);if(sr.data){sr.data.forEach(function(d){if(d.signedUrl&&d.path)PHOTO[d.path]=d.signedUrl;});render();}}
+  }catch(e){}
 }
 function vWorker(){
   var h='<header class="band"><div class="wrap"><div class="top"><div style="min-width:0"><div class="sub">فيدر للبناء</div><h1>أهلاً'+(AUTH.name?' '+esc(AUTH.name):'')+'</h1></div><img class="logo" src="'+LOGO+'" alt=""></div></div></header><main class="wrap" dir="rtl" lang="ar">';
@@ -800,8 +804,10 @@ function vWorker(){
   function fd(d){return d.split('-').reverse().join('/');}
   function row(t){
     var d=t.status==='הושלם';
-    var due=t.due?(!d&&t.due<today?chip('warn','متأخرة · '+fd(t.due)):'<span class="muted">'+fd(t.due)+'</span>'):'';
-    return '<div class="item"><button class="tick '+(d?'d':'')+'" data-act="wtoggle" data-id="'+esc(t.id)+'" aria-label="'+(d?'إرجاع':'تم الإنجاز')+'">'+(d?ico('check',20):'')+'</button><div class="main"><div class="t"'+(d?' style="text-decoration:line-through;opacity:.7"':'')+'>'+esc(t.title_ar||t.title)+'</div>'+((t.notes_ar||t.notes)?'<div class="muted">'+esc(t.notes_ar||t.notes)+'</div>':'')+(due?'<div>'+due+'</div>':'')+'</div>'+(t.assignee_name?chip('info',t.assignee_name):'')+'</div>';
+    var tm=t.due_time?' · '+esc(t.due_time):'';
+    var due=t.due?(!d&&t.due<today?chip('warn','متأخرة · '+fd(t.due)+tm):'<span class="muted">'+fd(t.due)+tm+'</span>'):'';
+    var th=t.photo&&PHOTO[t.photo]?'<a class="tthumb" style="float:none;margin:0" href="'+esc(PHOTO[t.photo])+'" target="_blank" rel="noopener">'+mediaTag(t.photo)+'</a>':'';
+    return '<div class="item"><button class="tick '+(d?'d':'')+'" data-act="wtoggle" data-id="'+esc(t.id)+'" aria-label="'+(d?'إرجاع':'تم الإنجاز')+'">'+(d?ico('check',20):'')+'</button><div class="main"><div class="t"'+(d?' style="text-decoration:line-through;opacity:.7"':'')+'>'+(t.kind==='פגישה'?ico('cal',16)+' اجتماع: ':'')+esc(t.title_ar||t.title)+'</div>'+((t.notes_ar||t.notes)?'<div class="muted">'+esc(t.notes_ar||t.notes)+'</div>':'')+(due?'<div>'+due+'</div>':'')+'</div>'+th+(t.assignee_name?chip('info',t.assignee_name):'')+'</div>';
   }
   h+='<div class="card pull stat"><div class="k">مهام مفتوحة</div><div class="v">'+open.length+'</div></div>';
   if(!pushOn()&&pushSupported())h+='<div class="card" style="margin-top:12px"><b>الإشعارات</b><div class="muted" style="margin:4px 0 8px">فعّل الإشعارات لتصلك المهام الجديدة.</div><button class="btn btn-accent" data-act="pushon">تفعيل الإشعارات</button><div class="muted" id="pushst" style="margin-top:6px"></div></div>';
@@ -818,7 +824,7 @@ function vWorker(){
     h+='<div style="text-align:center;margin:18px 0 6px"><button class="link" data-act="wshowdone">'+(WK.showDone?'إخفاء المنجزة':'عرض المهام المنجزة ('+done.length+')')+'</button></div>';
     if(WK.showDone)h+='<div class="stack">'+done.map(row).join('')+'</div>';
   }
-  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v33</div></main>';
+  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v37</div></main>';
 }
 function vAccountant(){
   var list=S.expenses.filter(function(x){return !UI.expProject||x.projectId===UI.expProject;});
@@ -1350,7 +1356,7 @@ async function loadTable(t){
 }
 async function loadAll(){await Promise.all(TABLES.map(loadTable));}
 async function ensurePhotos(){
-  var need=[];S.expenses.concat(S.docs,S.supplier_docs).forEach(function(x){if(x.photo&&!PHOTO[x.photo]&&need.indexOf(x.photo)<0)need.push(x.photo);});
+  var need=[];S.expenses.concat(S.docs,S.supplier_docs,S.tasks).forEach(function(x){if(x.photo&&!PHOTO[x.photo]&&need.indexOf(x.photo)<0)need.push(x.photo);});
   if(!need.length)return;
   var r=await sb.storage.from('photos').createSignedUrls(need,21600);
   if(r.data){r.data.forEach(function(d){if(d.signedUrl&&d.path)PHOTO[d.path]=d.signedUrl;});render();}
