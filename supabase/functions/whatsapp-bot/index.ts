@@ -281,7 +281,7 @@ ${common}`;
 - expense_summary: כמה הוצאנו. project_name אופציונלי, vendor אופציונלי, pay אופציונלי, period (week/month/all), group_by.
 - project_summary: מצב פרויקט (הוצאות ומשימות).
 - create_project: פרויקט חדש (project_name = שם חדש, address, client_name). set_project_status: status אחד מ: בהתחלה, בביצוע, בפינישים, הסתיים.
-- find_supplier: טלפון/פרטי ספק (supplier_name). add_supplier: ספק חדש. link_supplier: שיוך ספק לפרויקט.
+- find_supplier: טלפון/פרטי ספק (supplier_name). add_supplier: ספק חדש או עדכון ספק קיים (supplier_name, supplier_field = התחום/קטגוריה כמו אלומיניום, supplier_phone). אם מבקשים גם לשייך אותו לפרויקט, מלא project_name והוא ישויך באותה פעולה. אם הטקסט כולל שורה '(איש קשר שנשלח: שם, טלפון)', קח ממנה את השם והטלפון. link_supplier: שיוך ספק קיים לפרויקט.
 - add_order: הזמנת חומר (item, supplier_name אופציונלי, status). update_order: item מזהה + status חדש. list_orders: הזמנות פתוחות.
 - add_doc: תיעוד עבודה באתר (תמונה או וידאו שאינם קבלה). title קצר, stage אם ברור.
 - add_supplier_doc: תעודת משלוח או תיעוד שקשור לספק (supplier_name, kind).
@@ -553,8 +553,24 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
     case "add_supplier": {
       const name = String(a.supplier_name || "").trim();
       if (!name) return "מה שם הספק?";
-      const { error } = await db.from("suppliers").insert({ name, field: a.supplier_field || null, phone: a.supplier_phone || null });
-      return error ? "לא הצלחתי לשמור את הספק." : `נשמר ✓ ספק חדש: ${name}${a.supplier_phone ? " · " + a.supplier_phone : ""}`;
+      let sup: any = await supplierByName(name);
+      let created = false;
+      if (sup) {
+        const patch: any = {};
+        if (a.supplier_field) patch.field = a.supplier_field;
+        if (a.supplier_phone) patch.phone = a.supplier_phone;
+        if (Object.keys(patch).length) await db.from("suppliers").update(patch).eq("id", sup.id);
+      } else {
+        const ins = await db.from("suppliers").insert({ name, field: a.supplier_field || null, phone: a.supplier_phone || null }).select("id,name").maybeSingle();
+        if (ins.error || !ins.data) return "לא הצלחתי לשמור את הספק.";
+        sup = ins.data; created = true;
+      }
+      let linked = "";
+      if (a.project_name && proj) {
+        const lk = await db.from("project_suppliers").upsert({ project_id: proj.id, supplier_id: sup.id }, { onConflict: "project_id,supplier_id" });
+        if (!lk.error) linked = ` · שויך ל"${proj.name}"`;
+      }
+      return `נשמר ✓ ${created ? "ספק חדש" : "ספק עודכן"}: ${name}${a.supplier_field ? " · " + a.supplier_field : ""}${a.supplier_phone ? " · " + a.supplier_phone : ""}${linked}`;
     }
     case "link_supplier": {
       if (!proj) return needProj;
@@ -729,9 +745,28 @@ async function handleDocument(c: Ctx, caption: string, id: string, filename: str
   return "קיבלתי את הקובץ. לאיזה פרויקט לשייך? (" + (pr || []).map((p: any) => p.name).join(", ") + ")\nאפשר לכתוב 'בטל'.";
 }
 
+// ---------- contacts ----------
+async function handleContacts(c: Ctx, contacts: any[]): Promise<string> {
+  if (c.role !== "staff") return L(c, "אין לך הרשאה לשלוח אנשי קשר.", "غير مسموح لك بإرسال جهات الاتصال.");
+  const list = (contacts || []).map((x: any) => ({ name: String(x?.name?.formatted_name || x?.name?.first_name || "").trim(), phone: String(x?.phones?.[0]?.phone || x?.phones?.[0]?.wa_id || "").trim() })).filter((x: any) => x.name || x.phone);
+  if (!list.length) return "לא הצלחתי לקרוא את איש הקשר.";
+  await savePending(c.from, { kind: "contact", list });
+  return "קיבלתי: " + list.map((x: any) => `${x.name} ${x.phone}`.trim()).join(" ; ") + "\nמה לעשות איתו? למשל: \"תשמור כספק אלומיניום ותשייך לפרויקט הזולאי\" (או 'בטל').";
+}
+
 // ---------- routing ----------
 async function route(c: Ctx, text: string, media: { id: string; video: boolean } | null): Promise<string> {
   const t = text.trim();
+  // contact waiting for an instruction
+  let tt = t;
+  if (c.role === "staff" && !media && t) {
+    const cp = await peekPending(c.from);
+    if (cp && cp.kind === "contact") {
+      await db.from("bot_pending").delete().eq("phone", c.from);
+      if (NO.test(t)) return "בוטל.";
+      tt = t + "\n(איש קשר שנשלח: " + cp.list.map((x: any) => `${x.name}, ${x.phone}`).join(" ; ") + ")";
+    }
+  }
   // file waiting for a project
   if (c.role === "staff" && !media && t) {
     const pp = await peekPending(c.from);
@@ -761,9 +796,9 @@ async function route(c: Ctx, text: string, media: { id: string; video: boolean }
     if (!path) return L(c, "לא הצלחתי לקבל את הקובץ. נסה שוב.", "تعذّر استلام الملف، حاول مرة أخرى.");
   }
   if (AI_KEY) {
-    try { return await handleAI(c, t, m, !!media?.video, path); } catch (_e) { /* fall back */ }
+    try { return await handleAI(c, tt, m, !!media?.video, path); } catch (_e) { /* fall back */ }
   }
-  return await handleRules(c, t, path);
+  return await handleRules(c, tt, path);
 }
 
 // ---------- webhook ----------
@@ -780,6 +815,7 @@ async function processMessages(msgs: any[]) {
       if (m.type === "text") out = await route(c, m.text?.body || "", null);
       else if (m.type === "image") out = await route(c, m.image?.caption || "", { id: m.image.id, video: false });
       else if (m.type === "video") out = await route(c, m.video?.caption || "", { id: m.video.id, video: true });
+      else if (m.type === "contacts") out = await handleContacts(c, m.contacts || []);
       else if (m.type === "document") out = await handleDocument(c, m.document?.caption || "", m.document.id, m.document?.filename || "");
       else out = L(c, "אני מבין טקסט, תמונות, וידאו וקבצים בלבד.", "أفهم النصوص والصور والفيديو والملفات فقط.");
       await reply(from, out);

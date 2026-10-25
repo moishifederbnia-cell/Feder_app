@@ -1,3 +1,22 @@
+      const rm = a.remind_minutes === undefined || a.remind_minutes === null ? 30 : Number(a.remind_minutes);
+      if (rm >= 0) {
+        const base = hasTime ? Date.parse(startIso) : Date.parse(ilToUtc(date, "08:00"));
+        const when = new Date(base - (hasTime ? rm : 0) * 60000);
+        if (when.getTime() > Date.now()) {
+          const ids = await bossIds();
+          if (ids.length) {
+            await db.from("reminders").insert(ids.map((u: string) => ({ user_id: u, ref: "ev:" + id + ":" + u.slice(0, 6), title, body: (hasTime ? "בשעה " + time : "כל היום") + (a.location ? " · " + a.location : ""), remind_at: when.toISOString() })));
+            remNote = hasTime ? ` · תזכורת ${rm ? rm + " דק' לפני" : "בזמן האירוע"}` : " · תזכורת בבוקר";
+          }
+        }
+      }
+      return `נשמר ✓ ביומן: ${title} · ${fmtD(date)}${hasTime ? " " + time : " (כל היום)"}${a.location ? " · " + a.location : ""}${remNote}\n(יעבור ליומן גוגל כשתפתח את האפליקציה)`;
+    }
+    case "list_events": {
+      const today = ymd(il());
+      const scope = a.scope || "today";
+      const from = scope === "tomorrow" ? addDays(today, 1) : today;
+      const to = scope === "today" ? today : scope === "tomorrow" ? addDays(today, 1) : addDays(today, 7);
       const { data } = await db.from("events").select("title,start_at,all_day,location").gte("start_at", ilToUtc(from, "00:00")).lt("start_at", ilToUtc(addDays(to, 1), "00:00")).order("start_at", { ascending: true }).limit(25);
       if (!data?.length) return "אין אירועים ביומן בתקופה הזאת.\n(מוצגים רק אירועים שנשמרו באפליקציה/בבוט, לא כל יומן גוגל.)";
       return "ביומן:\n" + data.map((e: any) => {
@@ -77,9 +96,28 @@ async function handleDocument(c: Ctx, caption: string, id: string, filename: str
   return "קיבלתי את הקובץ. לאיזה פרויקט לשייך? (" + (pr || []).map((p: any) => p.name).join(", ") + ")\nאפשר לכתוב 'בטל'.";
 }
 
+// ---------- contacts ----------
+async function handleContacts(c: Ctx, contacts: any[]): Promise<string> {
+  if (c.role !== "staff") return L(c, "אין לך הרשאה לשלוח אנשי קשר.", "غير مسموح لك بإرسال جهات الاتصال.");
+  const list = (contacts || []).map((x: any) => ({ name: String(x?.name?.formatted_name || x?.name?.first_name || "").trim(), phone: String(x?.phones?.[0]?.phone || x?.phones?.[0]?.wa_id || "").trim() })).filter((x: any) => x.name || x.phone);
+  if (!list.length) return "לא הצלחתי לקרוא את איש הקשר.";
+  await savePending(c.from, { kind: "contact", list });
+  return "קיבלתי: " + list.map((x: any) => `${x.name} ${x.phone}`.trim()).join(" ; ") + "\nמה לעשות איתו? למשל: \"תשמור כספק אלומיניום ותשייך לפרויקט הזולאי\" (או 'בטל').";
+}
+
 // ---------- routing ----------
 async function route(c: Ctx, text: string, media: { id: string; video: boolean } | null): Promise<string> {
   const t = text.trim();
+  // contact waiting for an instruction
+  let tt = t;
+  if (c.role === "staff" && !media && t) {
+    const cp = await peekPending(c.from);
+    if (cp && cp.kind === "contact") {
+      await db.from("bot_pending").delete().eq("phone", c.from);
+      if (NO.test(t)) return "בוטל.";
+      tt = t + "\n(איש קשר שנשלח: " + cp.list.map((x: any) => `${x.name}, ${x.phone}`).join(" ; ") + ")";
+    }
+  }
   // file waiting for a project
   if (c.role === "staff" && !media && t) {
     const pp = await peekPending(c.from);
@@ -109,9 +147,9 @@ async function route(c: Ctx, text: string, media: { id: string; video: boolean }
     if (!path) return L(c, "לא הצלחתי לקבל את הקובץ. נסה שוב.", "تعذّر استلام الملف، حاول مرة أخرى.");
   }
   if (AI_KEY) {
-    try { return await handleAI(c, t, m, !!media?.video, path); } catch (_e) { /* fall back */ }
+    try { return await handleAI(c, tt, m, !!media?.video, path); } catch (_e) { /* fall back */ }
   }
-  return await handleRules(c, t, path);
+  return await handleRules(c, tt, path);
 }
 
 // ---------- webhook ----------
@@ -128,6 +166,7 @@ async function processMessages(msgs: any[]) {
       if (m.type === "text") out = await route(c, m.text?.body || "", null);
       else if (m.type === "image") out = await route(c, m.image?.caption || "", { id: m.image.id, video: false });
       else if (m.type === "video") out = await route(c, m.video?.caption || "", { id: m.video.id, video: true });
+      else if (m.type === "contacts") out = await handleContacts(c, m.contacts || []);
       else if (m.type === "document") out = await handleDocument(c, m.document?.caption || "", m.document.id, m.document?.filename || "");
       else out = L(c, "אני מבין טקסט, תמונות, וידאו וקבצים בלבד.", "أفهم النصوص والصور والفيديو والملفات فقط.");
       await reply(from, out);

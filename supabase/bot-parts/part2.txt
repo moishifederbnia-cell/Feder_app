@@ -33,7 +33,7 @@ ${common}`;
 - expense_summary: כמה הוצאנו. project_name אופציונלי, vendor אופציונלי, pay אופציונלי, period (week/month/all), group_by.
 - project_summary: מצב פרויקט (הוצאות ומשימות).
 - create_project: פרויקט חדש (project_name = שם חדש, address, client_name). set_project_status: status אחד מ: בהתחלה, בביצוע, בפינישים, הסתיים.
-- find_supplier: טלפון/פרטי ספק (supplier_name). add_supplier: ספק חדש. link_supplier: שיוך ספק לפרויקט.
+- find_supplier: טלפון/פרטי ספק (supplier_name). add_supplier: ספק חדש או עדכון ספק קיים (supplier_name, supplier_field = התחום/קטגוריה כמו אלומיניום, supplier_phone). אם מבקשים גם לשייך אותו לפרויקט, מלא project_name והוא ישויך באותה פעולה. אם הטקסט כולל שורה '(איש קשר שנשלח: שם, טלפון)', קח ממנה את השם והטלפון. link_supplier: שיוך ספק קיים לפרויקט.
 - add_order: הזמנת חומר (item, supplier_name אופציונלי, status). update_order: item מזהה + status חדש. list_orders: הזמנות פתוחות.
 - add_doc: תיעוד עבודה באתר (תמונה או וידאו שאינם קבלה). title קצר, stage אם ברור.
 - add_supplier_doc: תעודת משלוח או תיעוד שקשור לספק (supplier_name, kind).
@@ -204,7 +204,3 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
     case "delete_task": {
       const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, false);
       if (!hits.length) return "לא מצאתי משימה פתוחה כזאת.";
-      if (hits.length > 1) return "מצאתי כמה משימות:\n" + hits.slice(0, 6).map((t: any) => "• " + t.title).join("\n") + "\nכתוב את השם המדויק.";
-      await savePending(c.from, { kind: "delete_task", id: hits[0].id, label: `המשימה "${hits[0].title}"` });
-      return `למחוק את המשימה "${hits[0].title}"?\nכתוב "כן" לאישור.`;
-    }
