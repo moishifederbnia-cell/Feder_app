@@ -1,3 +1,12 @@
+    case "add_event": {
+      const title = String(a.title || "").trim();
+      if (!title) return "מה האירוע?";
+      if (!DATE_RE.test(a.due || a.date || "")) return "באיזה תאריך?";
+      const date = DATE_RE.test(a.due || "") ? a.due : a.date;
+      const hasTime = TIME_RE.test(a.time || "");
+      const time = hasTime ? a.time.padStart(5, "0") : "";
+      const startIso = hasTime ? ilToUtc(date, time) : ilToUtc(date, "00:00");
+      let endIso: string | null = null;
       if (hasTime) endIso = TIME_RE.test(a.end_time || "") ? ilToUtc(date, a.end_time.padStart(5, "0")) : new Date(Date.parse(startIso) + 3600000).toISOString();
       const id = crypto.randomUUID();
       const { error } = await db.from("events").insert({ id, title, start_at: startIso, end_at: endIso, all_day: !hasTime, project_id: proj && a.project_name ? proj.id : null, location: a.location || null, notes: a.note || null });

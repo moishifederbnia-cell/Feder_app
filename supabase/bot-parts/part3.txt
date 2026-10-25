@@ -1,3 +1,7 @@
+      if (hits.length > 1) return L(c, "מצאתי כמה משימות:\n", "وجدت عدة مهام:\n") + hits.slice(0, 6).map((t: any) => "• " + tTitle(t, c)).join("\n") + L(c, "\nכתוב את השם המדויק של אחת מהן.", "\nاكتب الاسم الدقيق لإحداها.");
+      const t = hits[0];
+      const { error } = await db.from("tasks").update(reopen ? { status: "לביצוע", done_at: null } : { status: "הושלם", done_at: new Date().toISOString() }).eq("id", t.id);
+      if (error) return L(c, "לא הצלחתי לעדכן.", "تعذّر التحديث.");
       if (c.role === "worker" && !reopen) await pushTo(await bossIds(), `${c.name || "פועל"} סגר משימה`, `${t.title} · ${pNames[t.project_id] || ""}`);
       return reopen ? L(c, `נפתחה מחדש ✓ "${t.title}"`, `أُعيد فتحها ✓ "${tTitle(t, c)}"`) : L(c, `נשמר ✓ "${t.title}" סומנה כבוצעה.`, `تم ✓ "${tTitle(t, c)}"`);
     }
@@ -201,12 +205,3 @@
       return `נשמר ✓ ${kind} של ${s.name} ב"${proj.name}"`;
     }
     // ----- calendar -----
-    case "add_event": {
-      const title = String(a.title || "").trim();
-      if (!title) return "מה האירוע?";
-      if (!DATE_RE.test(a.due || a.date || "")) return "באיזה תאריך?";
-      const date = DATE_RE.test(a.due || "") ? a.due : a.date;
-      const hasTime = TIME_RE.test(a.time || "");
-      const time = hasTime ? a.time.padStart(5, "0") : "";
-      const startIso = hasTime ? ilToUtc(date, time) : ilToUtc(date, "00:00");
-      let endIso: string | null = null;

@@ -218,6 +218,7 @@ function actTool(actions: string[]) {
               due: { type: "string", description: "YYYY-MM-DD or empty" },
               assignee: { type: "string", description: "Team member name exactly as in the team list, or empty" },
               time: { type: "string", description: "HH:MM only if a specific time was stated for the task (reminder 30 min before is created). No time stated => leave empty, no reminder." },
+              area: { type: "string", description: "Trade/area of the task: כללי, ריצוף, חשמל, אינסטלציה, טיח, איטום, צבע, מוסטפה, or another trade stated. Default כללי" },
               meeting: { type: "boolean", description: "true only if the user calls it a meeting / פגישה / מפגש: then it is also saved as a calendar event" },
               decision: { type: "boolean", description: "true if the task is waiting for a decision (ממתין להחלטה / צריך להחליט)" },
             },
@@ -260,6 +261,3 @@ function systemPrompt(c: Ctx, projects: any[]) {
   const d = il();
   const wd = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"][d.getDay()];
   const team = c.team.map((m) => m.name + (m.name_ar ? ` (${m.name_ar})` : "")).join(" | ");
-  const common = `היום: ${ymd(d)} (יום ${wd}), שעון ישראל. חשב תאריכים יחסיים ("מחר", "יום ראשון הבא", "בעוד שבוע") לפי היום.
-פרויקטים: ${projects.map((p) => p.name).join(" | ") || "(אין)"}.
-אנשי צוות: ${team || "(אין)"}.

@@ -218,6 +218,7 @@ function actTool(actions: string[]) {
               due: { type: "string", description: "YYYY-MM-DD or empty" },
               assignee: { type: "string", description: "Team member name exactly as in the team list, or empty" },
               time: { type: "string", description: "HH:MM only if a specific time was stated for the task (reminder 30 min before is created). No time stated => leave empty, no reminder." },
+              area: { type: "string", description: "Trade/area of the task: כללי, ריצוף, חשמל, אינסטלציה, טיח, איטום, צבע, מוסטפה, or another trade stated. Default כללי" },
               meeting: { type: "boolean", description: "true only if the user calls it a meeting / פגישה / מפגש: then it is also saved as a calendar event" },
               decision: { type: "boolean", description: "true if the task is waiting for a decision (ממתין להחלטה / צריך להחליט)" },
             },
@@ -274,7 +275,7 @@ ${common}`;
   }
   return `אתה עוזר של מנהל עבודה בחברת בנייה (פדר בניה). הוא כותב לך בעברית קצרה מהשטח, לפעמים עם תמונת קבלה או תיעוד.
 בחר את הפעולה והמלא פרטים:
-- add_task: משימה חדשה. אפשר הרבה משימות בהודעה אחת: אם כותבים רשימה (משימה אחת..., משימה שתיים..., 1. 2. 3., שורות נפרדות, או "משימות לפרויקט X: ..."), צור פריט נפרד ב-tasks לכל משימה, בלי להגביל את המספר. לכל פריט יכולים להיות assignee, due, time ו-project_name משלו (אם הרשימה כוללת כמה פרויקטים). אם כתוב "כל אלה ל-X" או "לאבו יאסר: ..." החל את האדם על כל המשימות שמתחתיו עד שמוזכר אדם אחר. אם נשלחה תמונה עם הכיתוב, היא תצורף למשימה הראשונה. לכל משימה: title בעברית, title_ar תרגום לערבית, due אם צוין, assignee אם שייך לאדם מהצוות ("תן לאבו יאסר...", "אמיתי ידאג ל..."), time=HH:MM רק אם צוינה שעה למשימה ("הספק מגיע מחר ב-10": due ו-time, תזכורת פוש חצי שעה לפני, בלי יומן). משימה בלי שעה: בלי time ובלי תזכורת. meeting=true רק אם המשתמש אמר פגישה/מפגש: אז היא נשמרת גם ביומן גוגל (due ו-time) עם תזכורת, decision=true אם זו משימה שממתינה להחלטה ("ממתין להחלטה", "צריך להחליט", "לחכות להחלטה").
+- add_task: משימה חדשה. אפשר הרבה משימות בהודעה אחת: אם כותבים רשימה (משימה אחת..., משימה שתיים..., 1. 2. 3., שורות נפרדות, או "משימות לפרויקט X: ..."), צור פריט נפרד ב-tasks לכל משימה, בלי להגביל את המספר. לכל פריט יכולים להיות assignee, due, time ו-project_name משלו (אם הרשימה כוללת כמה פרויקטים). אם כתוב "כל אלה ל-X" או "לאבו יאסר: ..." החל את האדם על כל המשימות שמתחתיו עד שמוזכר אדם אחר. אם נשלחה תמונה עם הכיתוב, היא תצורף למשימה הראשונה. לכל משימה אפשר area (תחום): כללי, ריצוף, חשמל, אינסטלציה, טיח, איטום, צבע, מוסטפה (עובד שעושה פינישים), או תחום אחר שנאמר; אם לא נאמר, כללי. לכל משימה: title בעברית, title_ar תרגום לערבית, due אם צוין, assignee אם שייך לאדם מהצוות ("תן לאבו יאסר...", "אמיתי ידאג ל..."), time=HH:MM רק אם צוינה שעה למשימה ("הספק מגיע מחר ב-10": due ו-time, תזכורת פוש חצי שעה לפני, בלי יומן). משימה בלי שעה: בלי time ובלי תזכורת. meeting=true רק אם המשתמש אמר פגישה/מפגש: אז היא נשמרת גם ביומן גוגל (due ו-time) עם תזכורת, decision=true אם זו משימה שממתינה להחלטה ("ממתין להחלטה", "צריך להחליט", "לחכות להחלטה").
 - list_tasks: מה יש/פתוח/באיחור/להיום. scope: today (להיום, כולל באיחור), tomorrow, week, overdue, open, done, decision (משימות שממתינות להחלטה). assignee_name אם שאל על אדם. mine=true אם שאל "מה יש לי".
 - complete_task / reopen_task: סגירה או פתיחה מחדש של משימה קיימת. title = מילים מזהות.
 - edit_task: שינוי משימה קיימת. title מזהה; new_title/new_title_ar, due, assignee_name לחדשים.
@@ -426,8 +427,9 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
         row.id = tid;
         if (hasT) row.due_time = it.time.padStart(5, "0");
         if (mediaPath && first) row.photo = mediaPath;
+        row.area = String(it.area || a.area || "").trim() || "כללי";
         let ins = await db.from("tasks").insert(row);
-        if (ins.error && (hasT || row.photo)) { delete row.due_time; delete row.photo; ins = await db.from("tasks").insert(row); }
+        if (ins.error && (hasT || row.photo || row.area)) { delete row.due_time; delete row.photo; delete row.area; ins = await db.from("tasks").insert(row); }
         if (ins.error) { out.push("✗ " + title); continue; }
         first = false;
         projNames.add(ip.name);

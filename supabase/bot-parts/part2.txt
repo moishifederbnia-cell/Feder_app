@@ -1,3 +1,6 @@
+  const common = `היום: ${ymd(d)} (יום ${wd}), שעון ישראל. חשב תאריכים יחסיים ("מחר", "יום ראשון הבא", "בעוד שבוע") לפי היום.
+פרויקטים: ${projects.map((p) => p.name).join(" | ") || "(אין)"}.
+אנשי צוות: ${team || "(אין)"}.
 project_name חייב להיות אחד מהשמות ברשימה בדיוק, או ריק אם לא ברור. בחר פעולה אחת בלבד.`;
   if (c.role === "worker") {
     return `אתה עוזר בוואטסאפ של חברת בנייה (פדר בניה) שמדבר עם פועל שטח בשם ${c.name || "הפועל"}. הוא כותב בערבית או בעברית.
@@ -9,7 +12,7 @@ ${common}`;
   }
   return `אתה עוזר של מנהל עבודה בחברת בנייה (פדר בניה). הוא כותב לך בעברית קצרה מהשטח, לפעמים עם תמונת קבלה או תיעוד.
 בחר את הפעולה והמלא פרטים:
-- add_task: משימה חדשה. אפשר הרבה משימות בהודעה אחת: אם כותבים רשימה (משימה אחת..., משימה שתיים..., 1. 2. 3., שורות נפרדות, או "משימות לפרויקט X: ..."), צור פריט נפרד ב-tasks לכל משימה, בלי להגביל את המספר. לכל פריט יכולים להיות assignee, due, time ו-project_name משלו (אם הרשימה כוללת כמה פרויקטים). אם כתוב "כל אלה ל-X" או "לאבו יאסר: ..." החל את האדם על כל המשימות שמתחתיו עד שמוזכר אדם אחר. אם נשלחה תמונה עם הכיתוב, היא תצורף למשימה הראשונה. לכל משימה: title בעברית, title_ar תרגום לערבית, due אם צוין, assignee אם שייך לאדם מהצוות ("תן לאבו יאסר...", "אמיתי ידאג ל..."), time=HH:MM רק אם צוינה שעה למשימה ("הספק מגיע מחר ב-10": due ו-time, תזכורת פוש חצי שעה לפני, בלי יומן). משימה בלי שעה: בלי time ובלי תזכורת. meeting=true רק אם המשתמש אמר פגישה/מפגש: אז היא נשמרת גם ביומן גוגל (due ו-time) עם תזכורת, decision=true אם זו משימה שממתינה להחלטה ("ממתין להחלטה", "צריך להחליט", "לחכות להחלטה").
+- add_task: משימה חדשה. אפשר הרבה משימות בהודעה אחת: אם כותבים רשימה (משימה אחת..., משימה שתיים..., 1. 2. 3., שורות נפרדות, או "משימות לפרויקט X: ..."), צור פריט נפרד ב-tasks לכל משימה, בלי להגביל את המספר. לכל פריט יכולים להיות assignee, due, time ו-project_name משלו (אם הרשימה כוללת כמה פרויקטים). אם כתוב "כל אלה ל-X" או "לאבו יאסר: ..." החל את האדם על כל המשימות שמתחתיו עד שמוזכר אדם אחר. אם נשלחה תמונה עם הכיתוב, היא תצורף למשימה הראשונה. לכל משימה אפשר area (תחום): כללי, ריצוף, חשמל, אינסטלציה, טיח, איטום, צבע, מוסטפה (עובד שעושה פינישים), או תחום אחר שנאמר; אם לא נאמר, כללי. לכל משימה: title בעברית, title_ar תרגום לערבית, due אם צוין, assignee אם שייך לאדם מהצוות ("תן לאבו יאסר...", "אמיתי ידאג ל..."), time=HH:MM רק אם צוינה שעה למשימה ("הספק מגיע מחר ב-10": due ו-time, תזכורת פוש חצי שעה לפני, בלי יומן). משימה בלי שעה: בלי time ובלי תזכורת. meeting=true רק אם המשתמש אמר פגישה/מפגש: אז היא נשמרת גם ביומן גוגל (due ו-time) עם תזכורת, decision=true אם זו משימה שממתינה להחלטה ("ממתין להחלטה", "צריך להחליט", "לחכות להחלטה").
 - list_tasks: מה יש/פתוח/באיחור/להיום. scope: today (להיום, כולל באיחור), tomorrow, week, overdue, open, done, decision (משימות שממתינות להחלטה). assignee_name אם שאל על אדם. mine=true אם שאל "מה יש לי".
 - complete_task / reopen_task: סגירה או פתיחה מחדש של משימה קיימת. title = מילים מזהות.
 - edit_task: שינוי משימה קיימת. title מזהה; new_title/new_title_ar, due, assignee_name לחדשים.
@@ -161,8 +164,9 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
         row.id = tid;
         if (hasT) row.due_time = it.time.padStart(5, "0");
         if (mediaPath && first) row.photo = mediaPath;
+        row.area = String(it.area || a.area || "").trim() || "כללי";
         let ins = await db.from("tasks").insert(row);
-        if (ins.error && (hasT || row.photo)) { delete row.due_time; delete row.photo; ins = await db.from("tasks").insert(row); }
+        if (ins.error && (hasT || row.photo || row.area)) { delete row.due_time; delete row.photo; delete row.area; ins = await db.from("tasks").insert(row); }
         if (ins.error) { out.push("✗ " + title); continue; }
         first = false;
         projNames.add(ip.name);
@@ -207,7 +211,3 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
       const reopen = a.action === "reopen_task";
       const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, reopen);
       if (!hits.length) return L(c, "לא מצאתי משימה כזאת.", "لم أجد هذه المهمة.");
-      if (hits.length > 1) return L(c, "מצאתי כמה משימות:\n", "وجدت عدة مهام:\n") + hits.slice(0, 6).map((t: any) => "• " + tTitle(t, c)).join("\n") + L(c, "\nכתוב את השם המדויק של אחת מהן.", "\nاكتب الاسم الدقيق لإحداها.");
-      const t = hits[0];
-      const { error } = await db.from("tasks").update(reopen ? { status: "לביצוע", done_at: null } : { status: "הושלם", done_at: new Date().toISOString() }).eq("id", t.id);
-      if (error) return L(c, "לא הצלחתי לעדכן.", "تعذّر التحديث.");

@@ -258,3 +258,5 @@ i.lg{width:10px;height:10px}
 .pcirc.hc.h4{background:#6B87A8}
 .hacts .plab{font-size:15px}
 .rtimg{display:block;max-width:220px;max-height:160px;margin-top:6px;border-radius:8px}
+.rarea{display:inline-block;font-size:.8em;font-weight:700;padding:1px 8px;border-radius:10px;background:#E7E1D5;color:#33404F;margin-inline-start:4px}
+.rarea-sum{font-weight:700;line-height:1.8}

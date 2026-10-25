@@ -276,6 +276,8 @@ var I={play:'<polygon points="6 4 20 12 6 20 6 4" fill="currentColor"/>',
 function ico(n,s){s=s||22;return '<svg width="'+s+'" height="'+s+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+I[n]+'</svg>';}
 
 /* ---------- forms config ---------- */
+var AREAS0=['כללי','ריצוף','חשמל','אינסטלציה','טיח','איטום','צבע','מוסטפה'];
+function areaList(){var o=AREAS0.slice();S.tasks.forEach(function(t){if(t.area&&o.indexOf(t.area)<0)o.push(t.area);});return o;}
 var STAGES=['שלד','אינסטלציה','חשמל','איטום','טיח','ריצוף','גמר','אחר'];
 var F={
  project:{title:'פרויקט',col:'projects',fields:[
@@ -285,7 +287,7 @@ var F={
   {k:'budget',l:'תקציב (₪)',t:'number'}]},
  task:{title:'משימה',col:'tasks',fields:[
   {k:'projectId',l:'פרויקט',t:'project',req:1},{k:'title',l:'מה צריך לעשות',t:'text',req:1},{k:'title_ar',l:'כותרת בערבית (לא חובה, לעובד שטח)',t:'text'},
-  {k:'assigneeId',l:'אחראי (ימתין לביצוע אצל)',t:'assignee'},{k:'due',l:'עד תאריך',t:'date'},{k:'due_time',l:'שעה (לא חובה, תזכורת חצי שעה לפני)',t:'time'},{k:'kind',l:'סוג',t:'select',o:['משימה','פגישה'],d:'משימה'},{k:'remind',l:'תזכורת בטלפון (דרך יומן גוגל)',t:'select',o:['ללא','בבוקר של היום (8:00)','יום לפני (18:00)'],d:'ללא'},{k:'status',l:'סטטוס',t:'select',o:['לביצוע','בתהליך','ממתין להחלטה','הושלם'],d:'לביצוע'},
+  {k:'assigneeId',l:'אחראי (ימתין לביצוע אצל)',t:'assignee'},{k:'due',l:'עד תאריך',t:'date'},{k:'due_time',l:'שעה (לא חובה, תזכורת חצי שעה לפני)',t:'time'},{k:'area',l:'תחום',t:'select',o:areaList,d:'כללי',add:1},{k:'kind',l:'סוג',t:'select',o:['משימה','פגישה'],d:'משימה'},{k:'remind',l:'תזכורת בטלפון (דרך יומן גוגל)',t:'select',o:['ללא','בבוקר של היום (8:00)','יום לפני (18:00)'],d:'ללא'},{k:'status',l:'סטטוס',t:'select',o:['לביצוע','בתהליך','ממתין להחלטה','הושלם'],d:'לביצוע'},
   {k:'notes',l:'הערות',t:'textarea'},{k:'photo',l:'תמונה או וידאו (לא חובה)',t:'photo',vid:1}]},
  expense:{title:'הוצאה / קבלה',col:'expenses',fields:[
   {k:'photo',l:'תמונת הקבלה',t:'photo'},{k:'projectId',l:'פרויקט',t:'project',req:1},
@@ -396,7 +398,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 39</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 40</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -416,7 +418,7 @@ function taskRow(showProj,editable,t){
   var tick=editable?'<button class="tick '+cls+(UI.justDone===t.id?' pop':'')+'" data-act="toggle" data-id="'+esc(t.id)+'" aria-label="'+(t.status==='הושלם'?'החזר לביצוע':'סמן כהושלם')+'">'+(t.status==='הושלם'?ico('check',20):'')+'</button>':'<span class="tick '+cls+'">'+(t.status==='הושלם'?ico('check',20):'')+'</span>';
   var main=(t.photo?'<span class="tthumb">'+mediaTag(t.photo)+'</span>':'')+'<div class="t"'+(t.status==='הושלם'?' style="text-decoration:line-through;opacity:.7"':'')+'>'+(t.kind==='פגישה'?ico('cal',16)+' ':'')+esc(t.title)+'</div><div class="muted">'+(showProj?esc(pname(t.projectId))+(t.due?' · ':''):'')+due+'</div>';
   return '<div class="item">'+tick+(editable?'<button class="main" data-act="edit" data-e="task" data-id="'+esc(t.id)+'">'+main+'</button>':'<div class="main">'+main+'</div>')+
-   (t.assigneeId&&teamName(t.assigneeId)?chip('info',teamName(t.assigneeId)):'')+(t.status!=='לביצוע'&&t.status!=='הושלם'?chip(TASK_CHIP[t.status]||'neutral',t.status):'')+'</div>';
+   (t.assigneeId&&teamName(t.assigneeId)?chip('info',teamName(t.assigneeId)):'')+(t.status!=='לביצוע'&&t.status!=='הושלם'?chip(TASK_CHIP[t.status]||'neutral',t.status):'')+(t.area&&t.area!=='כללי'?chip('neutral',t.area):'')+'</div>';
 }
 function sortTasks(a){return a.slice().sort(function(x,y){
   var dx=x.status==='הושלם',dy=y.status==='הושלם';if(dx!==dy)return dx?1:-1;
@@ -607,12 +609,18 @@ function taskState(t){
   if(t.due)return t.due<td?{txt:'לא עמד ביעד (באיחור '+daysBetween(t.due,td)+' ימים)',cls:'badt'}:{txt:'בתוך היעד',cls:''};
   return {txt:'ללא יעד',cls:''};
 }
+function areaSummary(tasks){
+  var by={};tasks.forEach(function(t){var a=t.area||'כללי';(by[a]=by[a]||{n:0,d:0});by[a].n++;if(t.status==='הושלם')by[a].d++;});
+  var ks=Object.keys(by).sort(function(a,b){return by[b].n-by[a].n;});
+  if(!ks.length)return '';
+  return '<h2>סיכום לפי תחום</h2><p class="rarea-sum">'+ks.map(function(k){return by[k].n+' משימות '+esc(k);}).join(' · ')+'</p><table class="rt"><thead><tr><th>תחום</th><th class="rd">משימות</th><th class="rd">הושלמו</th><th class="rd">פתוחות</th></tr></thead><tbody>'+ks.map(function(k){return '<tr><td>'+esc(k)+'</td><td class="rd">'+by[k].n+'</td><td class="rd">'+by[k].d+'</td><td class="rd">'+(by[k].n-by[k].d)+'</td></tr>';}).join('')+'</tbody></table>';
+}
 function repTasks(title,list,cls,kind){
   if(!list.length)return '';
   var isDone=kind==='done';
   return '<h2 class="'+cls+'">'+esc(title)+' ('+list.length+')</h2><table class="rt"><thead><tr><th>משימה</th><th class="rd">יעד</th>'+(isDone?'<th class="rd">בוצע ב</th>':'')+'<th class="rd">מצב</th></tr></thead><tbody>'+list.map(function(t){
     var st=taskState(t);
-    return '<tr><td>'+esc(t.title)+(t.notes?'<div class="rn">'+esc(t.notes)+'</div>':'')+(t.photo&&!isVid(t.photo)&&UI.repPhotos!==false?'<img class="rtimg" src="'+purl(t.photo)+'" alt="">':'')+'</td><td class="rd">'+(t.due?esc(fdate(t.due)):'')+'</td>'+(isDone?'<td class="rd">'+(t.doneDate?esc(fdate(t.doneDate)):'')+'</td>':'')+'<td class="rd st '+st.cls+'">'+esc(st.txt)+'</td></tr>';}).join('')+'</tbody></table>';
+    return '<tr><td>'+esc(t.title)+(t.area&&t.area!=='כללי'?' <span class="rarea">'+esc(t.area)+'</span>':'')+(t.notes?'<div class="rn">'+esc(t.notes)+'</div>':'')+(t.photo&&!isVid(t.photo)&&UI.repPhotos!==false?'<img class="rtimg" src="'+purl(t.photo)+'" alt="">':'')+'</td><td class="rd">'+(t.due?esc(fdate(t.due)):'')+'</td>'+(isDone?'<td class="rd">'+(t.doneDate?esc(fdate(t.doneDate)):'')+'</td>':'')+'<td class="rd st '+st.cls+'">'+esc(st.txt)+'</td></tr>';}).join('')+'</tbody></table>';
 }
 function repPerson(p){
   var pid=UI.reportPerson||'',openOnly=UI.repOpen!==false;
@@ -632,9 +640,10 @@ function repPerson(p){
     var open=list.filter(function(t){return t.status!=='הושלם';}).length;
     h+='<h2>'+esc(m.name)+' · '+open+' פתוחות'+(openOnly?'':' מתוך '+list.length)+'</h2><table class="rt"><thead><tr><th>משימה</th>'+(p?'':'<th>פרויקט</th>')+'<th class="rd">יעד</th><th class="rd">מצב</th></tr></thead><tbody>'+list.map(function(t){
       var st=taskState(t);
-      return '<tr><td>'+(t.kind==='פגישה'?'(פגישה) ':'')+esc(t.title)+(t.notes?'<div class="rn">'+esc(t.notes)+'</div>':'')+(t.photo&&!isVid(t.photo)&&UI.repPhotos!==false?'<img class="rtimg" src="'+purl(t.photo)+'" alt="">':'')+'</td>'+(p?'':'<td>'+esc(pname(t.projectId))+'</td>')+'<td class="rd">'+(t.due?esc(fdate(t.due))+(t.due_time?' '+esc(t.due_time):''):'')+'</td><td class="rd st '+st.cls+'">'+esc(t.status==='ממתין להחלטה'?'ממתין להחלטה':st.txt)+'</td></tr>';}).join('')+'</tbody></table>';
+      return '<tr><td>'+(t.kind==='פגישה'?'(פגישה) ':'')+esc(t.title)+(t.area&&t.area!=='כללי'?' <span class="rarea">'+esc(t.area)+'</span>':'')+(t.notes?'<div class="rn">'+esc(t.notes)+'</div>':'')+(t.photo&&!isVid(t.photo)&&UI.repPhotos!==false?'<img class="rtimg" src="'+purl(t.photo)+'" alt="">':'')+'</td>'+(p?'':'<td>'+esc(pname(t.projectId))+'</td>')+'<td class="rd">'+(t.due?esc(fdate(t.due))+(t.due_time?' '+esc(t.due_time):''):'')+'</td><td class="rd st '+st.cls+'">'+esc(t.status==='ממתין להחלטה'?'ממתין להחלטה':st.txt)+'</td></tr>';}).join('')+'</tbody></table>';
   });
   if(!any)h+='<p>אין משימות להצגה.</p>';
+  h+=areaSummary(base);
   return h;
 }
 function noteKey(part){return 'feder_rn_'+(UI.reportProject||'all')+'_'+(UI.reportType||'field')+'_'+part;}
@@ -653,6 +662,7 @@ function repField(p){
   h+='<div class="rsum"><div><b>'+pct+'%</b><span>הושלם</span></div><div><b>'+done.length+'</b><span>משימות שבוצעו</span></div><div><b>'+(prog.length+todo.length)+'</b><span>משימות שנותרו</span></div>'+((ml.met||ml.late)?'<div><b>'+ml.met+'</b><span>עמדו ביעד</span></div><div><b>'+ml.late+'</b><span>לא עמדו ביעד</span></div>':'')+'</div><div class="rbar"><i style="width:'+pct+'%"></i></div>';
   h+=repTasks('משימות שבוצעו',done,'ok','done')+repTasks('משימות בתהליך',prog,'warn','open')+repTasks('משימות שנותרו לביצוע',todo,'todo','open');
   if(!tasks.length)h+='<p>עדיין לא הוגדרו משימות בפרויקט.</p>';
+  h+=areaSummary(tasks);
   if(UI.repPhotos!==false){
     var docs=S.docs.filter(function(d){return d.projectId===p.id&&d.photo&&!isVid(d.photo);}).sort(function(a,b){return String(a.date||'').localeCompare(String(b.date||''));});
     if(docs.length)h+='<h2>תיעוד מהשטח</h2><div class="rphotos">'+docs.map(function(d){return '<figure><img src="'+purl(d.photo)+'" alt=""><figcaption><b>'+esc(d.title||'')+'</b><br>'+(d.stage?esc(d.stage)+' · ':'')+esc(fdate(d.date))+(d.note?'<br>'+esc(d.note):'')+'</figcaption></figure>';}).join('')+'</div>';
@@ -682,6 +692,7 @@ function repAllField(){
     var open=S.tasks.filter(function(t){return t.projectId===p.id&&t.status!=='הושלם';});
     if(open.length)h+=repTasks(p.name+' · משימות שנותרו',sortTasks(open),'todo','open');
   });
+  h+=areaSummary(S.tasks);
   return h;
 }
 function repAllFin(){
@@ -825,7 +836,7 @@ function vWorker(){
     h+='<div style="text-align:center;margin:18px 0 6px"><button class="link" data-act="wshowdone">'+(WK.showDone?'إخفاء المنجزة':'عرض المهام المنجزة ('+done.length+')')+'</button></div>';
     if(WK.showDone)h+='<div class="stack">'+done.map(row).join('')+'</div>';
   }
-  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v39</div></main>';
+  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v40</div></main>';
 }
 function vAccountant(){
   var list=S.expenses.filter(function(x){return !UI.expProject||x.projectId===UI.expProject;});
@@ -946,7 +957,7 @@ function fieldHtml(f,val){
   else if(f.t==='project')inp='<select id="'+id+'">'+projOptions(val)+'</select>';
   else if(f.t==='assignee')inp='<select id="'+id+'">'+assigneeOptions(val)+'</select>';
   else if(f.t==='supplier')inp='<select id="'+id+'">'+supOptions(val)+'</select>';
-  else if(f.t==='select')inp='<select id="'+id+'">'+(val&&f.o.indexOf(val)<0?[val].concat(f.o):f.o).map(function(o){return '<option'+(val===o?' selected':'')+'>'+esc(o)+'</option>';}).join('')+'</select>';
+  else if(f.t==='select'){var fo=typeof f.o==='function'?f.o():f.o;inp='<select id="'+id+'">'+(val&&fo.indexOf(val)<0?[val].concat(fo):fo).map(function(o){return '<option'+(val===o?' selected':'')+'>'+esc(o)+'</option>';}).join('')+(f.add?'<option value="__new__">➕ תחום חדש…</option>':'')+'</select>';}
   else if(f.t==='file'){
     var cur=form&&form.id?byId('plans',form.id):null;
     inp='<div class="ph"><span class="btn btn-navy filebtn">'+ico('plus',22)+'בחר קובץ<input type="file" class="filein" accept=".pdf,.dwg,.dxf,.doc,.docx,.xls,.xlsx,image/*" aria-label="בחר קובץ"></span><div class="muted" id="filename">'+(cur?'קובץ נוכחי: '+esc(cur.file_name||''):'לא נבחר קובץ')+'</div></div>';
@@ -1289,6 +1300,11 @@ document.addEventListener('click',function(ev){
 });
 document.addEventListener('change',function(ev){
   var t=ev.target;
+  if(t&&t.id==='f_area'&&t.value==='__new__'){
+    var nm=(prompt('שם התחום החדש:')||'').trim();
+    if(nm){var op=document.createElement('option');op.textContent=nm;t.insertBefore(op,t.lastElementChild);t.value=nm;}else t.value='כללי';
+    return;
+  }
   if(t.classList&&t.classList.contains('filein')&&form){
     var f2=t.files&&t.files[0];if(!f2)return;form.file2=f2;
     var fn=$('#filename');if(fn)fn.textContent=f2.name;
