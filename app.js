@@ -4,8 +4,8 @@ var SUPABASE_URL='https://jaaidfpfeihxfhzxsuak.supabase.co';
 var SUPABASE_KEY='sb_publishable_I7m0DLUAqWRNdkKdPq9JBw_2khMl1No';
 var sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_KEY,{auth:{persistSession:true,autoRefreshToken:true}});
 
-var TABLES=['projects','tasks','expenses','suppliers','orders','docs','messages','events','profiles','client_projects','plans','team_members','project_suppliers','supplier_docs'];
-var S={plans:[],projects:[],tasks:[],expenses:[],suppliers:[],orders:[],docs:[],messages:[],events:[],profiles:[],client_projects:[],team_members:[],project_suppliers:[],supplier_docs:[]};
+var TABLES=['projects','tasks','expenses','suppliers','orders','docs','messages','events','profiles','client_projects','plans','team_members','project_suppliers','supplier_docs','worker_access'];
+var S={plans:[],projects:[],tasks:[],expenses:[],suppliers:[],orders:[],docs:[],messages:[],events:[],profiles:[],client_projects:[],team_members:[],project_suppliers:[],supplier_docs:[],worker_access:[]};
 var loaded={};
 var AUTH={state:'loading',uid:null,name:'',role:'',msg:'',ok:''};
 var UI={calMonth:null,calSel:null,view:'home',projectId:null,tab:'tasks',taskFilter:'open',taskProject:'',taskPerson:'',justDone:'',projSup:'',projSupFor:'',expProject:'',supQuery:'',supField:'',supProject:'',clientProject:null};
@@ -398,7 +398,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 42</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 43</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -792,6 +792,11 @@ function vUsers(){
         var on=S.client_projects.some(function(c){return c.user_id===u.id&&c.projectId===p.id;});
         return '<label class="chk"><input type="checkbox" data-cp="'+esc(u.id)+'|'+esc(p.id)+'"'+(on?' checked':'')+'> '+esc(p.name)+'</label>';}).join(''):' אין פרויקטים')+'</div>';
     }
+    if(u.role==='worker'&&isAdmin()){
+      h+='<div style="margin-top:10px"><b style="font-size:15px">פרויקטים שעובד השטח רואה:</b><div class="muted" style="margin:2px 0 4px">הוא רואה רק משימות שמשויכות אליו, בפרויקטים שסימנת כאן.</div>'+(S.projects.length?S.projects.map(function(p){
+        var on=S.worker_access.some(function(c){return c.user_id===u.id&&c.projectId===p.id;});
+        return '<label class="chk"><input type="checkbox" data-wa="'+esc(u.id)+'|'+esc(p.id)+'"'+(on?' checked':'')+'> '+esc(p.name)+'</label>';}).join(''):' אין פרויקטים')+'</div>';
+    }
     h+='</div>';
   });
   return h+'</div></main>';
@@ -824,24 +829,24 @@ function vWorker(){
     var tm=t.due_time?' · '+esc(t.due_time):'';
     var due=t.due?(!d&&t.due<today?chip('warn','متأخرة · '+fd(t.due)+tm):'<span class="muted">'+fd(t.due)+tm+'</span>'):'';
     var th=t.photo&&PHOTO[t.photo]?'<a class="tthumb" style="float:none;margin:0" href="'+esc(PHOTO[t.photo])+'" target="_blank" rel="noopener">'+mediaTag(t.photo)+'</a>':'';
-    return '<div class="item"><button class="tick '+(d?'d':'')+'" data-act="wtoggle" data-id="'+esc(t.id)+'" aria-label="'+(d?'إرجاع':'تم الإنجاز')+'">'+(d?ico('check',20):'')+'</button><div class="main"><div class="t"'+(d?' style="text-decoration:line-through;opacity:.7"':'')+'>'+(t.kind==='פגישה'?ico('cal',16)+' اجتماع: ':'')+esc(t.title_ar||t.title)+'</div>'+((t.notes_ar||t.notes)?'<div class="muted">'+esc(t.notes_ar||t.notes)+'</div>':'')+(due?'<div>'+due+'</div>':'')+'</div>'+th+(t.assignee_name?chip('info',t.assignee_name):'')+'</div>';
+    return '<div class="item"><button class="tick '+(d?'d':'')+'" data-act="wtoggle" data-id="'+esc(t.id)+'" aria-label="'+(d?'إرجاع':'تم الإنجاز')+'">'+(d?ico('check',20):'')+'</button><div class="main"><div class="t"'+(d?' style="text-decoration:line-through;opacity:.7"':'')+'>'+(t.kind==='פגישה'?ico('cal',16)+' اجتماع: ':'')+esc(t.title_ar||t.title)+'</div>'+(t.title_ar&&t.title_ar!==t.title?'<div class="he" dir="rtl" lang="he">'+esc(t.title)+'</div>':'')+((t.notes_ar||t.notes)?'<div class="muted">'+esc(t.notes_ar||t.notes)+'</div>':'')+(t.notes_ar&&t.notes&&t.notes_ar!==t.notes?'<div class="he" dir="rtl" lang="he" style="font-weight:400">'+esc(t.notes)+'</div>':'')+(due?'<div>'+due+'</div>':'')+'</div>'+th+(t.assignee_name?chip('info',t.assignee_name):'')+'</div>';
   }
   h+='<div class="card pull stat"><div class="k">مهام مفتوحة</div><div class="v">'+open.length+'</div></div>';
   if(!pushOn()&&pushSupported())h+='<div class="card" style="margin-top:12px"><b>الإشعارات</b><div class="muted" style="margin:4px 0 8px">فعّل الإشعارات لتصلك المهام الجديدة.</div><button class="btn btn-accent" data-act="pushon">تفعيل الإشعارات</button><div class="muted" id="pushst" style="margin-top:6px"></div></div>';
-  h+='<div class="filters" style="margin-top:12px"><button class="fchip" data-act="wmine" data-v="0" aria-pressed="'+(!WK.mine)+'">كل المهام</button><button class="fchip" data-act="wmine" data-v="1" aria-pressed="'+WK.mine+'">مهامي</button></div>';
-  h+='<div class="filters" style="margin-top:8px"><button class="fchip" data-act="wproj" data-id="" aria-pressed="'+(!WK.proj)+'">كل المشاريع</button>'+WK.projects.map(function(p){return '<button class="fchip" data-act="wproj" data-id="'+esc(p.id)+'" aria-pressed="'+(WK.proj===p.id)+'">'+esc(p.name_ar||p.name)+'</button>';}).join('')+'</div>';
+  h+=''
+  h+='<div class="filters" style="margin-top:8px"><button class="fchip" data-act="wproj" data-id="" aria-pressed="'+(!WK.proj)+'">كل المشاريع</button>'+WK.projects.map(function(p){return '<button class="fchip" data-act="wproj" data-id="'+esc(p.id)+'" aria-pressed="'+(WK.proj===p.id)+'">'+esc(p.name_ar||p.name)+(p.name_ar&&p.name&&p.name_ar!==p.name?' · '+esc(p.name):'')+'</button>';}).join('')+'</div>';
   var list=WK.projects.filter(function(p){return !WK.proj||p.id===WK.proj;}),any=false;
   list.forEach(function(p){
     var ts=open.filter(function(t){return t.project_id===p.id;}).sort(function(a,b){return String(a.due||'9999').localeCompare(String(b.due||'9999'));});
     if(!ts.length)return;any=true;
-    h+='<div class="sec"><h2>'+esc(p.name_ar||p.name)+'</h2></div>'+(p.address?'<div class="muted" style="margin:-6px 0 8px">'+esc(p.address_ar||p.address)+'</div>':'')+'<div class="stack">'+ts.map(row).join('')+'</div>';
+    h+='<div class="sec"><h2>'+esc(p.name_ar||p.name)+(p.name_ar&&p.name&&p.name_ar!==p.name?' <span class="he" dir="rtl" lang="he" style="font-size:15px">· '+esc(p.name)+'</span>':'')+'</h2></div>'+(p.address?'<div class="muted" style="margin:-6px 0 8px">'+esc(p.address_ar||p.address)+(p.address_ar&&p.address&&p.address_ar!==p.address?' · <span class="he" dir="rtl" lang="he">'+esc(p.address)+'</span>':'')+'</div>':'')+'<div class="stack">'+ts.map(row).join('')+'</div>';
   });
   if(!any)h+=emptyBox('لا توجد مهام مفتوحة 👍');
   if(done.length){
     h+='<div style="text-align:center;margin:18px 0 6px"><button class="link" data-act="wshowdone">'+(WK.showDone?'إخفاء المنجزة':'عرض المهام المنجزة ('+done.length+')')+'</button></div>';
     if(WK.showDone)h+='<div class="stack">'+done.map(row).join('')+'</div>';
   }
-  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v42</div></main>';
+  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v43</div></main>';
 }
 function vAccountant(){
   var list=S.expenses.filter(function(x){return !UI.expProject||x.projectId===UI.expProject;});
@@ -1329,6 +1334,9 @@ document.addEventListener('change',function(ev){
   }else if(t.getAttribute&&t.getAttribute('data-psort')){lsSet('feder_psort',t.value);render();
   }else if(t.getAttribute&&t.getAttribute('data-role')){
     sb.from('profiles').update({role:t.value}).eq('id',t.getAttribute('data-role')).then(function(){loadTable('profiles');});
+  }else if(t.getAttribute&&t.getAttribute('data-wa')){
+    var wp=t.getAttribute('data-wa').split('|');
+    (t.checked?sb.from('worker_access').upsert({user_id:wp[0],project_id:wp[1]},{onConflict:'user_id,project_id'}):sb.from('worker_access').delete().eq('user_id',wp[0]).eq('project_id',wp[1])).then(function(){loadTable('worker_access');});
   }else if(t.getAttribute&&t.getAttribute('data-cp')){
     var pr=t.getAttribute('data-cp').split('|');
     (t.checked?sb.from('client_projects').insert({user_id:pr[0],project_id:pr[1]}):sb.from('client_projects').delete().eq('user_id',pr[0]).eq('project_id',pr[1])).then(function(){loadTable('client_projects');});
@@ -1371,7 +1379,7 @@ async function doSignup(){
 }
 async function loadTable(t){
   var q=sb.from(t).select('*');
-  var r=t==='client_projects'?await q:await q.order('created_at',{ascending:false});
+  var r=(t==='client_projects'||t==='worker_access')?await q:await q.order('created_at',{ascending:false});
   if(!r.error){S[t]=r.data.map(fromRow);}
   loaded[t]=true;
   if(t==='expenses'||t==='docs'||t==='supplier_docs')ensurePhotos();

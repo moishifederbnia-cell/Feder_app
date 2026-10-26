@@ -260,3 +260,5 @@ i.lg{width:10px;height:10px}
 .rtimg{display:block;max-width:220px;max-height:160px;margin-top:6px;border-radius:8px}
 .rarea{display:inline-block;font-size:.8em;font-weight:700;padding:1px 8px;border-radius:10px;background:#E7E1D5;color:#33404F;margin-inline-start:4px}
 .rarea-sum{font-weight:700;line-height:1.8}
+.he{font-size:14px;color:var(--navy,#384E69);opacity:.85;font-weight:600;margin-top:2px}
+@media (prefers-color-scheme:dark){.he{color:var(--on-navy,#DDD6CB)}}
