@@ -225,7 +225,7 @@ function assigneeOptions(sel){return '<option value="">ללא</option>'+S.team_m
 function allEvents(){return S.events.filter(function(e){return !(e.google_id&&gReady());}).concat(G.events);}
 var BLANK='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
-var MAP={projectId:'project_id',clientName:'client_name',clientPhone:'client_phone',supplierId:'supplier_id',assigneeId:'assignee_id'};
+var MAP={projectId:'project_id',clientName:'client_name',clientPhone:'client_phone',supplierId:'supplier_id',assigneeId:'assignee_id',orderId:'order_id'};
 var RMAP={};Object.keys(MAP).forEach(function(k){RMAP[MAP[k]]=k;});
 function fromRow(r){var o={};Object.keys(r).forEach(function(k){o[RMAP[k]||k]=r[k];});o.createdAt=r.created_at?Date.parse(r.created_at):0;
   if(r.done_at){o.doneDate=ymd(new Date(r.done_at));}
@@ -398,7 +398,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 40</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 41</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -528,16 +528,15 @@ function projSuppliersHtml(p){
       return '<div class="item"><button class="main" data-act="opensup" data-id="'+esc(x.id)+'"><div class="t">'+esc(x.name)+'</div><div class="muted">'+esc(x.field||'')+(n?' · '+n+' תעודות/תיעוד':'')+'</div></button>'+(x.phone?callBtns(x.phone,x.name):'')+'</div>';}).join('')+'</div>':emptyBox('עוד לא שויכו ספקים לפרויקט. לחץ "הוסף ספק" ובחר מהרשימה שלך.');
     return h;
   }
-  var docs=S.supplier_docs.filter(function(d){return d.projectId===p.id&&d.supplierId===s.id;}).sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''));});
+  var docs=S.supplier_docs.filter(function(d){return d.projectId===p.id&&d.supplierId===s.id&&!d.orderId;}).sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''));});
   var ords=S.orders.filter(function(o){return o.projectId===p.id&&o.supplierId===s.id;});
   var exps=S.expenses.filter(function(x){return x.projectId===p.id&&x.vendor===s.name;});
   var h='<button class="backlink" style="margin-top:10px" data-act="supback">'+ico('back',20)+'כל הספקים בפרויקט</button>';
   h+='<div class="card" style="margin-top:8px"><div class="name">'+esc(s.name)+'</div><div class="muted">'+esc(s.field||'')+'</div>'+
     (s.phone?'<div style="display:flex;align-items:center;gap:10px;margin-top:8px"><span class="ltr">'+esc(s.phone)+'</span>'+callBtns(s.phone,s.name)+'</div>':'')+
     (s.contacts&&s.contacts.length?s.contacts.map(function(c){return '<div style="display:flex;align-items:center;gap:10px;margin-top:8px"><span>'+esc(c.name||'')+(c.role?' · '+esc(c.role):'')+'</span>'+(c.phone?'<span class="ltr muted">'+esc(c.phone)+'</span>'+callBtns(c.phone,c.name||s.name):'')+'</div>';}).join(''):'')+'</div>';
-  h+='<div class="sec"><h2>תעודות משלוח ותיעוד</h2><button class="btn btn-accent" data-act="add" data-e="supdoc" data-project="'+esc(p.id)+'" data-supplier="'+esc(s.id)+'">'+ico('camera',20)+'הוסף</button></div>';
-  h+=docs.length?'<div class="docs">'+docs.map(function(d){
-    return '<button class="doc" data-act="edit" data-e="supdoc" data-id="'+esc(d.id)+'"><div class="im">'+(d.photo?mediaTag(d.photo):ico('image',34))+'</div><div class="tx"><div class="t" style="font-weight:700">'+esc(d.title||d.kind||'')+'</div><div class="muted">'+esc(d.kind||'')+' · '+esc(fdate(d.date))+'</div></div></button>';}).join('')+'</div>':emptyBox('עוד אין תעודות משלוח או תיעוד של הספק הזה בפרויקט.');
+  if(docs.length)h+='<div class="sec"><h2>תעודות ותיעוד ישנים</h2></div><div class="docs">'+docs.map(function(d){
+    return '<button class="doc" data-act="edit" data-e="supdoc" data-id="'+esc(d.id)+'"><div class="im">'+(d.photo?mediaTag(d.photo):ico('image',34))+'</div><div class="tx"><div class="t" style="font-weight:700">'+esc(d.title||d.kind||'')+'</div><div class="muted">'+esc(d.kind||'')+' · '+esc(fdate(d.date))+'</div></div></button>';}).join('')+'</div>';
   if(ords.length)h+='<div class="sec"><h2>הזמנות</h2></div><div class="stack">'+ords.map(function(o){return '<div class="item"><div class="main"><div class="t">'+esc(o.item)+'</div><div class="muted">'+esc(o.note||'')+'</div></div>'+chip(ORD_CHIP[o.status]||'neutral',o.status)+'</div>';}).join('')+'</div>';
   if(exps.length)h+='<div class="sec"><h2>הוצאות · '+money(sum(exps))+'</h2></div><div class="stack">'+sortExp(exps).map(expRow.bind(null,false)).join('')+'</div>';
   h+='<div style="text-align:center;margin:22px 0 4px"><button class="link" data-act="rmpsup" data-id="'+esc(s.id)+'">הסר ספק מהפרויקט</button></div>';
@@ -574,8 +573,11 @@ function vProject(){
     h+='<div class="sec" style="margin-top:12px"><h2>הזמנות</h2>'+addBtn('order','הוסף',p.id)+'</div>';
     h+=ords.length?'<div class="stack">'+ords.slice().sort(function(a,b){var k=['לא הוזמן','הוזמן','הגיע'];return k.indexOf(a.status)-k.indexOf(b.status);}).map(function(o){
       var s=byId('suppliers',o.supplierId);
-      return '<div class="item"><button class="main" data-act="edit" data-e="order" data-id="'+esc(o.id)+'"><div class="t">'+esc(o.item)+'</div><div class="muted">'+esc(s?s.name:'ספק לא נבחר')+(o.note?' · '+esc(o.note):'')+'</div></button>'+
-       '<button class="chip c-'+(ORD_CHIP[o.status]||'neutral')+'" style="border:0;min-height:40px;font-size:14px" data-act="cycle" data-id="'+esc(o.id)+'" aria-label="שנה מצב הזמנה">'+esc(o.status)+'</button></div>';}).join('')+'</div>':emptyBox('עוד אין הזמנות בפרויקט הזה.');
+      var od=S.supplier_docs.filter(function(d){return d.orderId===o.id;}).sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''));});
+      return '<div class="card" style="padding:10px 12px"><div class="item" style="border:0;padding:0;box-shadow:none;background:none"><button class="main" data-act="edit" data-e="order" data-id="'+esc(o.id)+'"><div class="t">'+esc(o.item)+'</div><div class="muted">'+esc(s?s.name:'ספק לא נבחר')+(o.note?' · '+esc(o.note):'')+'</div></button>'+
+       '<button class="chip c-'+(ORD_CHIP[o.status]||'neutral')+'" style="border:0;min-height:40px;font-size:14px" data-act="cycle" data-id="'+esc(o.id)+'" aria-label="שנה מצב הזמנה">'+esc(o.status)+'</button></div>'+
+       (od.length?'<div class="docs" style="margin-top:8px">'+od.map(function(d){return '<button class="doc" data-act="edit" data-e="supdoc" data-id="'+esc(d.id)+'"><div class="im">'+(d.photo?mediaTag(d.photo):ico('image',34))+'</div><div class="tx"><div class="t" style="font-weight:700">'+esc(d.title||d.kind||'')+'</div><div class="muted">'+esc(d.kind||'')+' · '+esc(fdate(d.date))+'</div></div></button>';}).join('')+'</div>':'')+
+       '<button class="btn btn-line" style="margin-top:8px;min-height:42px;font-size:15px;width:100%" data-act="add" data-e="supdoc" data-order="'+esc(o.id)+'" data-project="'+esc(p.id)+'"'+(o.supplierId?' data-supplier="'+esc(o.supplierId)+'"':'')+'>'+ico('camera',20)+' תעודת משלוח / תיעוד'+(od.length?' ('+od.length+')':'')+'</button></div>';}).join('')+'</div>':emptyBox('עוד אין הזמנות בפרויקט הזה.');
   }else if(UI.tab==='plans'){
     h+='<div class="sec" style="margin-top:12px"><h2>תוכניות וקבצים</h2>'+addBtn('plan','הוסף',p.id)+'</div>';
     h+=plans.length?'<div class="stack">'+plans.slice().sort(function(a,b){return b.createdAt-a.createdAt;}).map(function(pl){
@@ -836,7 +838,7 @@ function vWorker(){
     h+='<div style="text-align:center;margin:18px 0 6px"><button class="link" data-act="wshowdone">'+(WK.showDone?'إخفاء المنجزة':'عرض المهام المنجزة ('+done.length+')')+'</button></div>';
     if(WK.showDone)h+='<div class="stack">'+done.map(row).join('')+'</div>';
   }
-  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v40</div></main>';
+  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v41</div></main>';
 }
 function vAccountant(){
   var list=S.expenses.filter(function(x){return !UI.expProject||x.projectId===UI.expProject;});
@@ -980,7 +982,7 @@ function fieldHtml(f,val){
 }
 function openForm(e,id,defs){
   var cfg=F[e],doc=id?byId(cfg.col,id):null;defs=defs||{};
-  form={e:e,id:id||null,file:null,file2:null,removed:false,busy:false,confirmDel:false,photo:doc&&doc.photo||''};
+  form={e:e,id:id||null,file:null,file2:null,removed:false,busy:false,confirmDel:false,photo:doc&&doc.photo||'',orderId:doc?doc.orderId:(defs.orderId||null)};
   var html='<div class="scrim" data-act="closeSheet"></div><form class="sheet" id="frm" role="dialog" aria-modal="true" aria-labelledby="sh_t" novalidate><h2 id="sh_t" tabindex="-1">'+(doc?'עריכת ':'חדש: ')+esc(cfg.title)+'</h2>';
   cfg.fields.forEach(function(f){
     var v=doc?doc[f.k]:(defs[f.k]!=null?defs[f.k]:(f.d==='today'?todayStr():(f.d||'')));
@@ -1100,6 +1102,7 @@ async function submitForm(ev){
       if(pu.error)throw pu.error;
       data.file_path=ppath;data.file_name=form.file2.name;data.file_type=ext;
     }
+    if(form.e==='supdoc'&&form.orderId)data.orderId=form.orderId;
     var hasPhoto=cfg.fields.some(function(f){return f.t==='photo';});
     if(hasPhoto){
       if(form.file){
@@ -1236,7 +1239,7 @@ document.addEventListener('click',function(ev){
   else if(a==='add'){
     var d={};var pj=el.getAttribute('data-project');if(pj)d.projectId=pj;
     else if(UI.view==='project'&&UI.projectId)d.projectId=UI.projectId;
-    var sp=el.getAttribute('data-supplier');if(sp)d.supplierId=sp;
+    var sp=el.getAttribute('data-supplier');if(sp)d.supplierId=sp;var od=el.getAttribute('data-order');if(od)d.orderId=od;
     if(el.getAttribute('data-e')==='event'&&UI.calSel)d.date=UI.calSel;
     openForm(el.getAttribute('data-e'),null,d);
   }
