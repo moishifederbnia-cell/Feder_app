@@ -837,8 +837,23 @@ async function handleAudio(c: Ctx, id: string): Promise<string> {
 // ---------- routing ----------
 async function route(c: Ctx, text: string, media: { id: string; video: boolean } | null, voice = false): Promise<string> {
   const t = text.trim();
-  // contact waiting for an instruction
+  // image/video waiting for the missing detail (usually the project)
   let tt = t;
+  let mediaCarry: { buf: Uint8Array; mime: string } | null = null;
+  let carryPath: string | null = null, carryVideo = false;
+  if (c.role === "staff" && !media && t) {
+    const mp = await peekPending(c.from);
+    if (mp && mp.kind === "media_wait") {
+      await db.from("bot_pending").delete().eq("phone", c.from);
+      if (NO.test(t)) return "בוטל. התמונה לא נשמרה.";
+      try {
+        const dl = await db.storage.from("photos").download(mp.path);
+        if (dl.data) { mediaCarry = { buf: new Uint8Array(await dl.data.arrayBuffer()), mime: mp.mime }; carryPath = mp.path; carryVideo = !!mp.video; }
+      } catch (_e) { /* ignore */ }
+      if (mediaCarry) tt = (mp.text ? mp.text + "\n" : "") + "(תשובה לשאלה על התמונה ששלחתי קודם: " + t + ")";
+    }
+  }
+  // contact waiting for an instruction
   if (c.role === "staff" && !media && t) {
     const cp = await peekPending(c.from);
     if (cp && cp.kind === "contact") {
@@ -875,8 +890,15 @@ async function route(c: Ctx, text: string, media: { id: string; video: boolean }
     if (m) path = await uploadMedia(m.buf, m.mime);
     if (!path) return L(c, "לא הצלחתי לקבל את הקובץ. נסה שוב.", "تعذّر استلام الملف، حاول مرة أخرى.");
   }
+  if (mediaCarry) { m = mediaCarry; path = carryPath; media = { id: "", video: carryVideo }; }
   if (AI_KEY) {
-    try { return await handleAI(c, voice ? tt + "\n[הערה: הטקסט תומלל אוטומטית מהודעה קולית, ייתכנו טעויות שמיעה בשמות ובמילים. תקן לפי רשימות הפרויקטים והצוות.]" : tt, m, !!media?.video, path); } catch (_e) { /* fall back */ }
+    try {
+      const out = await handleAI(c, voice ? tt + "\n[הערה: הטקסט תומלל אוטומטית מהודעה קולית, ייתכנו טעויות שמיעה בשמות ובמילים. תקן לפי רשימות הפרויקטים והצוות.]" : tt, m, !!media?.video, path);
+      if (c.role === "staff" && media && m && path && (/^(לאיזה פרויקט|لأي مشروع)/.test(out) || /[?؟]\s*$/.test(out.trim()))) {
+        await savePending(c.from, { kind: "media_wait", path, mime: m.mime, video: !!media.video, text: t });
+      }
+      return out;
+    } catch (_e) { /* fall back */ }
   }
   return await handleRules(c, tt, path);
 }

@@ -1,3 +1,20 @@
+        const when = new Date(base - (hasTime ? rm : 0) * 60000);
+        if (when.getTime() > Date.now()) {
+          const ids = await bossIds();
+          if (ids.length) {
+            await db.from("reminders").insert(ids.map((u: string) => ({ user_id: u, ref: "ev:" + id + ":" + u.slice(0, 6), title, body: (hasTime ? "בשעה " + time : "כל היום") + (a.location ? " · " + a.location : ""), remind_at: when.toISOString() })));
+            remNote = hasTime ? ` · תזכורת ${rm ? rm + " דק' לפני" : "בזמן האירוע"}` : " · תזכורת בבוקר";
+          }
+        }
+      }
+      return `נשמר ✓ ביומן: ${title} · ${fmtD(date)}${hasTime ? " " + time : " (כל היום)"}${a.location ? " · " + a.location : ""}${remNote}\n(יעבור ליומן גוגל כשתפתח את האפליקציה)`;
+    }
+    case "list_events": {
+      const today = ymd(il());
+      const scope = a.scope || "today";
+      const from = scope === "tomorrow" ? addDays(today, 1) : today;
+      const to = scope === "today" ? today : scope === "tomorrow" ? addDays(today, 1) : addDays(today, 7);
+      const { data } = await db.from("events").select("title,start_at,all_day,location").gte("start_at", ilToUtc(from, "00:00")).lt("start_at", ilToUtc(addDays(to, 1), "00:00")).order("start_at", { ascending: true }).limit(25);
       if (!data?.length) return "אין אירועים ביומן בתקופה הזאת.\n(מוצגים רק אירועים שנשמרו באפליקציה/בבוט, לא כל יומן גוגל.)";
       return "ביומן:\n" + data.map((e: any) => {
         const dt = new Date(new Date(e.start_at).toLocaleString("en-US", { timeZone: "Asia/Jerusalem" }));
@@ -120,8 +137,23 @@ async function handleAudio(c: Ctx, id: string): Promise<string> {
 // ---------- routing ----------
 async function route(c: Ctx, text: string, media: { id: string; video: boolean } | null, voice = false): Promise<string> {
   const t = text.trim();
-  // contact waiting for an instruction
+  // image/video waiting for the missing detail (usually the project)
   let tt = t;
+  let mediaCarry: { buf: Uint8Array; mime: string } | null = null;
+  let carryPath: string | null = null, carryVideo = false;
+  if (c.role === "staff" && !media && t) {
+    const mp = await peekPending(c.from);
+    if (mp && mp.kind === "media_wait") {
+      await db.from("bot_pending").delete().eq("phone", c.from);
+      if (NO.test(t)) return "בוטל. התמונה לא נשמרה.";
+      try {
+        const dl = await db.storage.from("photos").download(mp.path);
+        if (dl.data) { mediaCarry = { buf: new Uint8Array(await dl.data.arrayBuffer()), mime: mp.mime }; carryPath = mp.path; carryVideo = !!mp.video; }
+      } catch (_e) { /* ignore */ }
+      if (mediaCarry) tt = (mp.text ? mp.text + "\n" : "") + "(תשובה לשאלה על התמונה ששלחתי קודם: " + t + ")";
+    }
+  }
+  // contact waiting for an instruction
   if (c.role === "staff" && !media && t) {
     const cp = await peekPending(c.from);
     if (cp && cp.kind === "contact") {
@@ -158,8 +190,15 @@ async function route(c: Ctx, text: string, media: { id: string; video: boolean }
     if (m) path = await uploadMedia(m.buf, m.mime);
     if (!path) return L(c, "לא הצלחתי לקבל את הקובץ. נסה שוב.", "تعذّر استلام الملف، حاول مرة أخرى.");
   }
+  if (mediaCarry) { m = mediaCarry; path = carryPath; media = { id: "", video: carryVideo }; }
   if (AI_KEY) {
-    try { return await handleAI(c, voice ? tt + "\n[הערה: הטקסט תומלל אוטומטית מהודעה קולית, ייתכנו טעויות שמיעה בשמות ובמילים. תקן לפי רשימות הפרויקטים והצוות.]" : tt, m, !!media?.video, path); } catch (_e) { /* fall back */ }
+    try {
+      const out = await handleAI(c, voice ? tt + "\n[הערה: הטקסט תומלל אוטומטית מהודעה קולית, ייתכנו טעויות שמיעה בשמות ובמילים. תקן לפי רשימות הפרויקטים והצוות.]" : tt, m, !!media?.video, path);
+      if (c.role === "staff" && media && m && path && (/^(לאיזה פרויקט|لأي مشروع)/.test(out) || /[?؟]\s*$/.test(out.trim()))) {
+        await savePending(c.from, { kind: "media_wait", path, mime: m.mime, video: !!media.video, text: t });
+      }
+      return out;
+    } catch (_e) { /* fall back */ }
   }
   return await handleRules(c, tt, path);
 }
