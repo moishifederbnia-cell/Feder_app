@@ -281,7 +281,7 @@ ${common}`;
 - complete_task / reopen_task: סגירה או פתיחה מחדש של משימה קיימת. title = מילים מזהות.
 - edit_task: שינוי משימה קיימת. title מזהה; new_title/new_title_ar, due, assignee_name לחדשים.
 - delete_task: מחיקת משימה. title מזהה.
-- add_expense: הוצאה או קבלה. אם זו הוצאה כללית שלא שייכת לפרויקט (דלק, כלי עבודה, משרד, 'כללי') שים general=true ו-project_name ריק.  בתמונת קבלה קרא סכום כולל (₪), עסק, תאריך ואמצעי תשלום. אמצעי תשלום: אם מופיעות ספרות כרטיס (למשל ****1234), VISA/Mastercard/ישראכרט/כאל/מקס/"אשראי"/"כרטיס"/אישור סליקה => אשראי; אם כתוב "מזומן" או "עודף" => מזומן; אחרת השאר ריק. טקסט המשתמש גובר על התמונה.
+- add_expense: הוצאה או קבלה. general=true רק אם המשתמש כתב במפורש 'כללי' או 'הוצאה כללית'. אם לא צוין פרויקט ולא נכתב 'כללי', אל תנחש: השאר project_name ריק ו-general=false (הבוט ישאל).  בתמונת קבלה קרא סכום כולל (₪), עסק, תאריך ואמצעי תשלום. אמצעי תשלום: אם מופיעות ספרות כרטיס (למשל ****1234), VISA/Mastercard/ישראכרט/כאל/מקס/"אשראי"/"כרטיס"/אישור סליקה => אשראי; אם כתוב "מזומן" או "עודף" => מזומן; אחרת השאר ריק. טקסט המשתמש גובר על התמונה.
 - edit_expense / delete_expense: הוצאה קיימת. vendor ו/או amount מזהים, או last=true ל"האחרונה". לחדשים: new_amount, new_vendor, pay.
 - expense_summary: כמה הוצאנו. project_name אופציונלי, vendor אופציונלי, pay אופציונלי, period (week/month/all), group_by.
 - project_summary: מצב פרויקט (הוצאות ומשימות).
@@ -505,7 +505,7 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
     }
     // ----- expenses -----
     case "add_expense": {
-      const gen = !proj && a.general === true;
+      const gen = !proj && a.general === true && /כללי|כללית/.test(text || "");
       if (!proj && !gen) return L(c, "לאיזה פרויקט? כתוב את שם הפרויקט (" + P.map((p: any) => p.name).join(", ") + ") או 'כללי' אם זו הוצאה כללית בלי פרויקט.", "");
       const amount = Number(a.amount);
       if (!isFinite(amount) || amount <= 0) return "לא הצלחתי לקרוא סכום. כתוב אותו בהודעה, למשל: 350 חשמל בנימין " + proj.name;

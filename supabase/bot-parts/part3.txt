@@ -11,7 +11,7 @@
     }
     // ----- expenses -----
     case "add_expense": {
-      const gen = !proj && a.general === true;
+      const gen = !proj && a.general === true && /כללי|כללית/.test(text || "");
       if (!proj && !gen) return L(c, "לאיזה פרויקט? כתוב את שם הפרויקט (" + P.map((p: any) => p.name).join(", ") + ") או 'כללי' אם זו הוצאה כללית בלי פרויקט.", "");
       const amount = Number(a.amount);
       if (!isFinite(amount) || amount <= 0) return "לא הצלחתי לקרוא סכום. כתוב אותו בהודעה, למשל: 350 חשמל בנימין " + proj.name;
