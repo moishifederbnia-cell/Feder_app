@@ -778,26 +778,30 @@ async function savePlanRec(rec: any, proj: any): Promise<string> {
   const { error } = await db.from("plans").insert({ project_id: proj.id, title: rec.title, file_path: rec.path, file_name: rec.name, file_type: rec.ext });
   return error ? "לא הצלחתי לשמור את הקובץ." : `נשמר ✓ בתוכניות של "${proj.name}": ${rec.title}`;
 }
+const T_RCPT = /קבלה|קבלת|חשבונית|הוצא|receipt|invoice/i, T_PLAN = /תוכנית|תכנית|שרטוט/, T_DOC = /תיעוד/;
 async function handleDocument(c: Ctx, caption: string, id: string, filename: string): Promise<string> {
   if (c.role !== "staff") return L(c, "אין לך הרשאה לשלוח קבצים.", "غير مسموح لك بإرسال الملفات.");
-  // a PDF that is a receipt / invoice goes to expenses, not to plans
-  if (/קבלה|קבלת|חשבונית|הוצא|receipt|invoice/i.test(caption + " " + filename) && !/תוכנית|תכנית|שרטוט/.test(caption)) {
-    const dm0 = await downloadMedia(id);
-    if (dm0 && dm0.mime.includes("pdf")) return await route(c, caption || "קבלה", { id, video: false });
-  }
   const dm = await downloadMedia(id);
   if (!dm) return "לא הצלחתי לקבל את הקובץ. נסה שוב.";
-  const ext = ((filename.match(/\.([A-Za-z0-9]{1,6})$/) || [])[1] || (dm.mime.includes("pdf") ? "pdf" : "bin")).toLowerCase();
+  const isPdf = dm.mime.includes("pdf");
+  // the caption says it is a receipt -> expense (PDF only)
+  if (isPdf && T_RCPT.test(caption) && !T_PLAN.test(caption)) return await route(c, caption, { id, video: false });
+  const ext = ((filename.match(/\.([A-Za-z0-9]{1,6})$/) || [])[1] || (isPdf ? "pdf" : "bin")).toLowerCase();
   const path = `plans/wa/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
   const up = await db.storage.from("photos").upload(path, dm.buf, { contentType: dm.mime || "application/octet-stream" });
   if (up.error) return "לא הצלחתי לשמור את הקובץ.";
   const base = (filename || "").replace(/\.[^.]+$/, "").trim();
-  const rec = { kind: "plan_file", path, name: filename || `file.${ext}`, ext, title: base || caption.trim() || "תוכנית" };
   const { data: pr } = await db.from("projects").select("id,name");
   const proj = matchProject("", caption, pr || []);
-  if (proj) return await savePlanRec(rec, proj);
+  const rec: any = { kind: "plan_file", path, name: filename || `file.${ext}`, ext, title: base || caption.trim() || "תוכנית", projId: proj ? proj.id : null };
+  if (T_PLAN.test(caption) && proj) return await savePlanRec(rec, proj);
+  if (T_DOC.test(caption) && proj) return await saveDocRec(rec, proj);
   await savePending(c.from, rec);
-  return "קיבלתי את הקובץ. לאיזה פרויקט לשייך אותו כתוכנית? (" + (pr || []).map((p: any) => p.name).join(", ") + ")\nאם זו קבלה, כתוב 'קבלה' ואת שם הפרויקט. אפשר לכתוב 'בטל'.";
+  return "קיבלתי את הקובץ. מה זה? כתוב: תוכנית / " + (isPdf ? "קבלה / " : "") + "תיעוד" + (proj ? "" : ", ואת שם הפרויקט (" + (pr || []).map((p: any) => p.name).join(", ") + ")") + ".\nאפשר לכתוב 'בטל'.";
+}
+async function saveDocRec(rec: any, proj: any): Promise<string> {
+  const { error } = await db.from("docs").insert({ project_id: proj.id, title: rec.title, stage: "אחר", photo: rec.path, date: ymd(il()) });
+  return error ? "לא הצלחתי לשמור את התיעוד." : `נשמר ✓ תיעוד ב"${proj.name}": ${rec.title}`;
 }
 
 // ---------- contacts ----------
@@ -874,18 +878,24 @@ async function route(c: Ctx, text: string, media: { id: string; video: boolean }
     const pp = await peekPending(c.from);
     if (pp && pp.kind === "plan_file") {
       if (NO.test(t)) { await db.from("bot_pending").delete().eq("phone", c.from); return "בוטל. הקובץ נשאר שמור ללא שיוך."; }
-      if (/קבלה|חשבונית|הוצא/.test(t) && pp.ext === "pdf") {
+      const { data: pr } = await db.from("projects").select("id,name");
+      const list = (pr || []).map((p: any) => p.name).join(", ");
+      const kindW = T_RCPT.test(t) ? "rcpt" : T_PLAN.test(t) ? "plan" : T_DOC.test(t) ? "doc" : "";
+      const proj = (t.length <= 80 ? matchProject(t, t, pr || []) : null) || (pr || []).find((p: any) => p.id === pp.projId) || null;
+      if (!kindW) { if (t.length <= 80) return "זו תוכנית, קבלה או תיעוד? כתוב אחת מהמילים האלה" + (proj ? "" : " ואת שם הפרויקט (" + list + ")") + ", או 'בטל'."; }
+      else if (kindW === "rcpt") {
+        if (pp.ext !== "pdf") return "קבלה אפשר לשלוח כ-PDF או כתמונה. הקובץ הזה אינו PDF. כתוב 'תוכנית' או 'תיעוד', או 'בטל'.";
         await db.from("bot_pending").delete().eq("phone", c.from);
         const dl = await db.storage.from("photos").download(pp.path);
         if (dl.data) {
           mediaCarry = { buf: new Uint8Array(await dl.data.arrayBuffer()), mime: "application/pdf" }; carryPath = pp.path; carryVideo = false;
-          tt = "(קבלה ב-PDF שנשלחה קודם) " + t;
+          tt = "(קבלה ב-PDF שנשלחה קודם) " + t + (proj && !matchProject(t, t, pr || []) ? " " + proj.name : "");
         }
+      } else {
+        if (!proj) return "לאיזה פרויקט? כתוב את שמו (" + list + ") או 'בטל'.";
+        await db.from("bot_pending").delete().eq("phone", c.from);
+        return kindW === "plan" ? await savePlanRec(pp, proj) : await saveDocRec(pp, proj);
       }
-      const { data: pr } = await db.from("projects").select("id,name");
-      const proj = !mediaCarry && t.length <= 60 ? matchProject(t, t, pr || []) : null;
-      if (proj) { await db.from("bot_pending").delete().eq("phone", c.from); return await savePlanRec(pp, proj); }
-      if (!mediaCarry && t.length <= 60) return "לא זיהיתי את הפרויקט. כתוב את שמו (" + (pr || []).map((p: any) => p.name).join(", ") + ") או 'בטל'.";
     }
   }
   // confirmations

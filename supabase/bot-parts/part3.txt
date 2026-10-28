@@ -1,9 +1,3 @@
-      const t = hits[0]; const patch: any = {}; const parts: string[] = [];
-      if (a.new_title) { patch.title = a.new_title; patch.title_ar = a.new_title_ar || null; parts.push(`טקסט: ${a.new_title}`); }
-      if (DATE_RE.test(a.due || "")) { patch.due = a.due; parts.push(`תאריך: ${fmtD(a.due)}`); }
-      let mem: any = null;
-      if (a.assignee_name) { mem = matchMember(a.assignee_name, c.team); if (mem) { patch.assignee_id = mem.id; parts.push(`אחראי: ${mem.name}`); } }
-      if (!parts.length) return "מה לשנות במשימה? (טקסט, תאריך או אחראי)";
       const label = `"${t.title}" → ${parts.join(", ")}`;
       await savePending(c.from, { kind: "edit_task", id: t.id, patch, label, title_for_push: a.new_title || t.title, title_ar_for_push: a.new_title_ar || t.title_ar || null, project_name: pNames[t.project_id] });
       return `לשנות ${label}?\nכתוב "כן" לאישור.`;
@@ -217,3 +211,14 @@
           const ids = await bossIds();
           if (ids.length) {
             await db.from("reminders").insert(ids.map((u: string) => ({ user_id: u, ref: "ev:" + id + ":" + u.slice(0, 6), title, body: (hasTime ? "בשעה " + time : "כל היום") + (a.location ? " · " + a.location : ""), remind_at: when.toISOString() })));
+            remNote = hasTime ? ` · תזכורת ${rm ? rm + " דק' לפני" : "בזמן האירוע"}` : " · תזכורת בבוקר";
+          }
+        }
+      }
+      return `נשמר ✓ ביומן: ${title} · ${fmtD(date)}${hasTime ? " " + time : " (כל היום)"}${a.location ? " · " + a.location : ""}${remNote}\n(יעבור ליומן גוגל כשתפתח את האפליקציה)`;
+    }
+    case "list_events": {
+      const today = ymd(il());
+      const scope = a.scope || "today";
+      const from = scope === "tomorrow" ? addDays(today, 1) : today;
+      const to = scope === "today" ? today : scope === "tomorrow" ? addDays(today, 1) : addDays(today, 7);
