@@ -29,7 +29,7 @@ async function downloadMedia(mediaId: string): Promise<{ buf: Uint8Array; mime: 
 }
 async function uploadMedia(buf: Uint8Array, mime: string): Promise<string | null> {
   try {
-    const ext = mime.startsWith("video/") ? (mime.includes("quicktime") ? "mov" : mime.includes("webm") ? "webm" : "mp4") : "jpg";
+    const ext = mime.includes("pdf") ? "pdf" : mime.startsWith("video/") ? (mime.includes("quicktime") ? "mov" : mime.includes("webm") ? "webm" : "mp4") : "jpg";
     const path = `wa/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const up = await db.storage.from("photos").upload(path, buf, { contentType: mime });
     return up.error ? null : path;
@@ -267,3 +267,4 @@ function systemPrompt(c: Ctx, projects: any[]) {
 project_name חייב להיות אחד מהשמות ברשימה בדיוק, או ריק אם לא ברור. בחר פעולה אחת בלבד.`;
   if (c.role === "worker") {
     return `אתה עוזר בוואטסאפ של חברת בנייה (פדר בניה) שמדבר עם פועל שטח בשם ${c.name || "הפועל"}. הוא כותב בערבית או בעברית.
+הוא מורשה רק: לראות משימות (list_tasks), לסגור משימה (complete_task) או לפתוח מחדש (reopen_task), לשלוח תיעוד של עבודה בתמונה או וידאו (add_doc), או לשאול שאלה כללית (chat).

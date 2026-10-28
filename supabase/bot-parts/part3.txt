@@ -1,6 +1,3 @@
-      const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, false);
-      if (!hits.length) return "לא מצאתי משימה פתוחה כזאת.";
-      if (hits.length > 1) return "מצאתי כמה משימות:\n" + hits.slice(0, 6).map((t: any) => "• " + t.title).join("\n") + "\nכתוב את השם המדויק.";
       const t = hits[0]; const patch: any = {}; const parts: string[] = [];
       if (a.new_title) { patch.title = a.new_title; patch.title_ar = a.new_title_ar || null; parts.push(`טקסט: ${a.new_title}`); }
       if (DATE_RE.test(a.due || "")) { patch.due = a.due; parts.push(`תאריך: ${fmtD(a.due)}`); }
@@ -214,3 +211,10 @@
       const rm = a.remind_minutes === undefined || a.remind_minutes === null ? 30 : Number(a.remind_minutes);
       if (rm >= 0) {
         const base = hasTime ? Date.parse(startIso) : Date.parse(ilToUtc(date, "08:00"));
+        const when = new Date(base - (hasTime ? rm : 0) * 60000);
+        if (when.getTime() > Date.now()) {
+          const ids = await bossIds();
+          if (ids.length) {
+            await db.from("reminders").insert(ids.map((u: string) => ({ user_id: u, ref: "ev:" + id + ":" + u.slice(0, 6), title, body: (hasTime ? "בשעה " + time : "כל היום") + (a.location ? " · " + a.location : ""), remind_at: when.toISOString() })));
+            remNote = hasTime ? ` · תזכורת ${rm ? rm + " דק' לפני" : "בזמן האירוע"}` : " · תזכורת בבוקר";
+          }

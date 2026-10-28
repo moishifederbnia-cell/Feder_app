@@ -247,7 +247,8 @@ function sum(a){return a.reduce(function(t,x){return t+(Number(x.amount)||0);},0
 function chip(cls,t){return '<span class="chip c-'+cls+'">'+esc(t)+'</span>';}
 function purl(path){return PHOTO[path]||BLANK;}
 function isVid(p){return /\.(mp4|mov|webm|3gp|m4v)$/i.test(p||'');}
-function mediaTag(p,full){return isVid(p)?'<video src="'+purl(p)+'#t=0.1" preload="metadata" muted playsinline'+(full?' controls':'')+'></video>'+(full?'':'<span class="vplay">'+ico('play',26)+'</span>'):'<img src="'+purl(p)+'" alt="">';}
+function isPdf(p){return /\.pdf$/i.test(p||'');}
+function mediaTag(p,full){if(isPdf(p))return '<span class="pdft">PDF</span>';return isVid(p)?'<video src="'+purl(p)+'#t=0.1" preload="metadata" muted playsinline'+(full?' controls':'')+'></video>'+(full?'':'<span class="vplay">'+ico('play',26)+'</span>'):'<img src="'+purl(p)+'" alt="">';}
 function isStaff(){return AUTH.role==='admin'||AUTH.role==='team';}
 function isAdmin(){return AUTH.role==='admin';}
 
@@ -268,6 +269,7 @@ var I={play:'<polygon points="6 4 20 12 6 20 6 4" fill="currentColor"/>',
  tasks:'<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 12l3 3 5-6"/>',
  receipt:'<path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/>',
  box:'<path d="M4 8l8-4 8 4v9l-8 4-8-4z"/><path d="M4 8l8 4 8-4M12 12v9"/>',
+ link:'<path d="M10 14a4 4 0 005.7 0l3-3a4 4 0 00-5.7-5.7l-1 1M14 10a4 4 0 00-5.7 0l-3 3a4 4 0 005.7 5.7l1-1"/>',
  plan:'<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/>',
  truck:'<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="17.5" r="1.8"/><circle cx="17" cy="17.5" r="1.8"/>',
  chat:'<path d="M4 5h16v11H9l-5 4z"/>',
@@ -290,7 +292,7 @@ var F={
   {k:'assigneeId',l:'אחראי (ימתין לביצוע אצל)',t:'assignee'},{k:'due',l:'עד תאריך',t:'date'},{k:'due_time',l:'שעה (לא חובה, תזכורת חצי שעה לפני)',t:'time'},{k:'area',l:'תחום',t:'select',o:areaList,d:'כללי',add:1},{k:'kind',l:'סוג',t:'select',o:['משימה','פגישה'],d:'משימה'},{k:'remind',l:'תזכורת בטלפון (דרך יומן גוגל)',t:'select',o:['ללא','בבוקר של היום (8:00)','יום לפני (18:00)'],d:'ללא'},{k:'status',l:'סטטוס',t:'select',o:['לביצוע','בתהליך','ממתין להחלטה','הושלם'],d:'לביצוע'},
   {k:'notes',l:'הערות',t:'textarea'},{k:'photo',l:'תמונה או וידאו (לא חובה)',t:'photo',vid:1}]},
  expense:{title:'הוצאה / קבלה',col:'expenses',fields:[
-  {k:'photo',l:'תמונת הקבלה',t:'photo'},{k:'projectId',l:'פרויקט',t:'project',req:1},
+  {k:'photo',l:'תמונת הקבלה או קובץ PDF',t:'photo',pdf:1},{k:'projectId',l:'פרויקט',t:'project',req:1},
   {k:'vendor',l:'ספק',t:'text',list:'suppliers',req:1},{k:'amount',l:'סכום (₪)',t:'number',req:1},
   {k:'pay',l:'אמצעי תשלום',t:'select',o:['לא צוין','מזומן','אשראי'],d:'מזומן'},{k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'הערה',t:'text'}]},
  supplier:{title:'ספק',col:'suppliers',fields:[
@@ -310,11 +312,11 @@ var F={
  supdoc:{title:'תעודה / תיעוד של ספק',col:'supplier_docs',fields:[
   {k:'photo',l:'תמונה או וידאו',t:'photo',vid:1},{k:'projectId',l:'פרויקט',t:'project',req:1},{k:'supplierId',l:'ספק',t:'supplier',req:1},
   {k:'kind',l:'סוג',t:'select',o:['תעודת משלוח','תיעוד'],d:'תעודת משלוח'},
-  {k:'title',l:'כותרת (לא חובה)',t:'text'},{k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'הערה',t:'textarea'}]},
+  {k:'title',l:'כותרת (לא חובה)',t:'text'},{k:'link',l:'קישור (דרייב וכו׳, לא חובה)',t:'url'},{k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'הערה',t:'textarea'}]},
  doc:{title:'תיעוד',col:'docs',fields:[
   {k:'photo',l:'תמונה או וידאו',t:'photo',vid:1},{k:'projectId',l:'פרויקט',t:'project',req:1},
   {k:'stage',l:'תחום',t:'select',o:['חשמל','אינסטלציה','איטום','ריצוף','בנייה','הריסה','משימה','אחר'],d:'אחר'},
-  {k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'הערה',t:'textarea'}]}
+  {k:'link',l:'קישור (גוגל דרייב וכו׳, לא חובה, לקבצים גדולים)',t:'url'},{k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'הערה',t:'textarea'}]}
 };
 var TASK_CHIP={'לביצוע':'neutral','בתהליך':'warn','ממתין להחלטה':'start','הושלם':'ok'};
 var PROJ_CHIP={'בהתחלה':'start','בביצוע':'run','בפינישים':'info','הסתיים':'ok','סיום':'ok'};
@@ -398,7 +400,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 43</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 44</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -443,7 +445,7 @@ function vTasks(){
 }
 
 function expRow(showProj,x){
-  return '<div class="item">'+(x.photo?'<button class="thumb" data-act="photo" data-id="'+esc(x.photo)+'" aria-label="הצג קבלה"><img class="thumb" src="'+purl(x.photo)+'" alt=""></button>':'')+
+  return '<div class="item">'+(x.photo?'<button class="thumb" data-act="photo" data-id="'+esc(x.photo)+'" aria-label="הצג קבלה">'+(isPdf(x.photo)?'<span class="pdft">PDF</span>':'<img class="thumb" src="'+purl(x.photo)+'" alt="">')+'</button>':'')+
    '<button class="main" data-act="edit" data-e="expense" data-id="'+esc(x.id)+'"><div class="t">'+esc(x.vendor)+'</div><div class="muted">'+(showProj?esc(pname(x.projectId))+' · ':'')+fdate(x.date)+(x.pay?' · '+esc(x.pay):'')+(x.note?' · '+esc(x.note):'')+'</div></button>'+
    '<div class="amt">'+money(x.amount)+'</div></div>';
 }
@@ -579,7 +581,7 @@ function vProject(){
        ['תעודת משלוח','תיעוד'].map(function(kd){
          var ks=od.filter(function(d){return (d.kind||'תעודת משלוח')===kd;});
          return '<div style="margin-top:10px"><div style="font-weight:700;font-size:15px;margin-bottom:6px">'+(kd==='תיעוד'?'תיעוד':'תעודת משלוח')+(ks.length?' ('+ks.length+')':'')+'</div>'+
-         (ks.length?'<div class="docs">'+ks.map(function(d){return '<button class="doc" data-act="edit" data-e="supdoc" data-id="'+esc(d.id)+'"><div class="im">'+(d.photo?mediaTag(d.photo):ico('image',34))+'</div><div class="tx"><div class="t" style="font-weight:700">'+esc(d.title||kd)+'</div><div class="muted">'+esc(fdate(d.date))+'</div></div></button>';}).join('')+'</div>':'')+
+         (ks.length?'<div class="docs">'+ks.map(function(d){return '<div>'+'<button class="doc" style="width:100%" data-act="edit" data-e="supdoc" data-id="'+esc(d.id)+'"><div class="im">'+(d.photo?mediaTag(d.photo):d.link?ico('link',34):ico('image',34))+'</div><div class="tx"><div class="t" style="font-weight:700">'+esc(d.title||kd)+'</div><div class="muted">'+esc(fdate(d.date))+'</div></div></button>'+(d.link?'<a class="btn btn-line" style="margin-top:6px;min-height:38px;font-size:14px;width:100%" href="'+esc(d.link)+'" target="_blank" rel="noopener">'+ico('link',18)+' פתח קישור</a>':'')+'</div>';}).join('')+'</div>':'')+
          '<button class="btn btn-line" style="margin-top:6px;min-height:42px;font-size:15px;width:100%" data-act="add" data-e="supdoc" data-kind="'+kd+'" data-order="'+esc(o.id)+'" data-project="'+esc(p.id)+'"'+(o.supplierId?' data-supplier="'+esc(o.supplierId)+'"':'')+'>'+ico('camera',20)+' הוסף '+(kd==='תיעוד'?'תמונת תיעוד':'תמונת תעודת משלוח')+'</button></div>';}).join('')+'</div>';}).join('')+'</div>':emptyBox('עוד אין הזמנות בפרויקט הזה.');
   }else if(UI.tab==='plans'){
     h+='<div class="sec" style="margin-top:12px"><h2>תוכניות וקבצים</h2>'+addBtn('plan','הוסף',p.id)+'</div>';
@@ -591,7 +593,7 @@ function vProject(){
   }else if(UI.tab==='docs'){
     h+='<div class="sec" style="margin-top:12px"><h2>תיעוד</h2>'+addBtn('doc','הוסף',p.id)+'</div>';
     h+=docs.length?'<div class="docs">'+docs.slice().sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''));}).map(function(d){
-      return '<button class="doc" data-act="edit" data-e="doc" data-id="'+esc(d.id)+'"><div class="im">'+(d.photo?mediaTag(d.photo):ico('image',34))+'</div><div class="tx"><div class="t" style="font-weight:700">'+esc(d.title||d.stage||'תיעוד')+'</div><div class="muted">'+(d.stage&&d.stage!==d.title?esc(d.stage)+' · ':'')+fdate(d.date)+'</div></div></button>';}).join('')+'</div>':emptyBox('עוד אין תיעוד. צלם תמונה ראשונה.');
+      return '<div><button class="doc" style="width:100%" data-act="edit" data-e="doc" data-id="'+esc(d.id)+'"><div class="im">'+(d.photo?mediaTag(d.photo):d.link?ico('link',34):ico('image',34))+'</div><div class="tx"><div class="t" style="font-weight:700">'+esc(d.title||d.stage||'תיעוד')+'</div><div class="muted">'+(d.stage&&d.stage!==d.title?esc(d.stage)+' · ':'')+fdate(d.date)+'</div></div></button>'+(d.link?'<a class="btn btn-line" style="margin-top:6px;min-height:38px;font-size:14px;width:100%" href="'+esc(d.link)+'" target="_blank" rel="noopener">'+ico('link',18)+' פתח קישור</a>':'')+'</div>';}).join('')+'</div>':emptyBox('עוד אין תיעוד. צלם תמונה ראשונה.');
   }else{
     h+='<div class="sec" style="margin-top:12px"><h2>הודעות עם הלקוח</h2></div>'+msgsHtml(p.id);
   }
@@ -804,7 +806,7 @@ function vUsers(){
 
 /* accountant (expenses only) */
 function expRowRO(x){
-  return '<div class="item">'+(x.photo?'<button class="thumb" data-act="photo" data-id="'+esc(x.photo)+'" aria-label="הצג קבלה"><img class="thumb" src="'+purl(x.photo)+'" alt=""></button>':'')+
+  return '<div class="item">'+(x.photo?'<button class="thumb" data-act="photo" data-id="'+esc(x.photo)+'" aria-label="הצג קבלה">'+(isPdf(x.photo)?'<span class="pdft">PDF</span>':'<img class="thumb" src="'+purl(x.photo)+'" alt="">')+'</button>':'')+
    '<div class="main"><div class="t">'+esc(x.vendor)+'</div><div class="muted">'+esc(pname(x.projectId))+' · '+fdate(x.date)+(x.pay?' · '+esc(x.pay):'')+(x.note?' · '+esc(x.note):'')+'</div></div><div class="amt">'+money(x.amount)+'</div></div>';
 }
 var WK={tasks:[],projects:[],ok:false,showDone:false,mine:false,proj:''};
@@ -846,7 +848,7 @@ function vWorker(){
     h+='<div style="text-align:center;margin:18px 0 6px"><button class="link" data-act="wshowdone">'+(WK.showDone?'إخفاء المنجزة':'عرض المهام المنجزة ('+done.length+')')+'</button></div>';
     if(WK.showDone)h+='<div class="stack">'+done.map(row).join('')+'</div>';
   }
-  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v43</div></main>';
+  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v44</div></main>';
 }
 function vAccountant(){
   var list=S.expenses.filter(function(x){return !UI.expProject||x.projectId===UI.expProject;});
@@ -980,7 +982,7 @@ function fieldHtml(f,val){
     var vd=!!f.vid;
     inp='<div class="ph"><div class="phprev" id="phprev">'+(val?mediaTag(val,true):ico('camera',40))+'</div>'+
       '<div class="grid2"><span class="btn btn-navy filebtn">'+ico('camera',22)+'צלם תמונה<input type="file" accept="image/*" capture="environment" class="photoin" aria-label="צלם במצלמה"></span>'+
-      '<span class="btn btn-line filebtn">'+ico('image',22)+(vd?'תמונה/וידאו מהגלריה':'מהגלריה')+'<input type="file" accept="'+(vd?'image/*,video/*':'image/*')+'" class="photoin" aria-label="בחר מהגלריה"></span></div>'+
+      '<span class="btn btn-line filebtn">'+ico('image',22)+(f.pdf?'מהגלריה או קובץ PDF':vd?'תמונה/וידאו מהגלריה':'מהגלריה')+'<input type="file" accept="'+(f.pdf?'image/*,application/pdf':vd?'image/*,video/*':'image/*')+'" class="photoin" aria-label="בחר מהגלריה"></span></div>'+
       (vd?'<div class="grid2" style="margin-top:8px"><span class="btn btn-navy filebtn" style="grid-column:1/-1">'+ico('play',22)+'צלם וידאו (עד 50MB)<input type="file" accept="video/*" capture="environment" class="photoin" aria-label="צלם וידאו"></span></div>':'')+
       (val?'<button type="button" class="btn btn-line" data-act="rmphoto">הסר</button>':'')+'</div>';
   }
@@ -1060,6 +1062,7 @@ async function submitForm(ev){
     if(f.t==='number'){
       if(v===''){v=null;}else{var n=parseFloat(v.replace(/,/g,'.').replace(/[₪\s]/g,''));if(isNaN(n)){ferr('הסכום צריך להיות מספר.');if(el)el.focus();return;}v=n;}
     }
+    if(f.t==='url'){v=v?(/^https?:\/\//i.test(v)?v:'https://'+v):null;}
     data[f.k]=v;
   }
   if(form.e==='expense'&&data.pay==='לא צוין')data.pay=null;
@@ -1115,11 +1118,12 @@ async function submitForm(ev){
     if(hasPhoto){
       if(form.file){
         btn.textContent='מעלה תמונה…';
+        var ispdf=/pdf/i.test(form.file.type)||/\.pdf$/i.test(form.file.name||'');
         var isv=/^video\//.test(form.file.type),vext=((form.file.name||'').match(/\.([A-Za-z0-9]{2,4})$/)||[])[1]||'mp4';
         if(isv)btn.textContent='מעלה וידאו… (עשוי לקחת רגע)';
-        var blob=isv?form.file:await shrink(form.file);
-        var path=AUTH.uid+'/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+(isv?'.'+vext.toLowerCase():'.jpg');
-        var up=await sb.storage.from('photos').upload(path,blob,{contentType:isv?(form.file.type||'video/mp4'):'image/jpeg'});
+        var blob=(isv||ispdf)?form.file:await shrink(form.file);
+        var path=AUTH.uid+'/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+(ispdf?'.pdf':isv?'.'+vext.toLowerCase():'.jpg');
+        var up=await sb.storage.from('photos').upload(path,blob,{contentType:ispdf?'application/pdf':isv?(form.file.type||'video/mp4'):'image/jpeg'});
         if(up.error)throw up.error;
         data.photo=path;
       }else if(form.removed){data.photo=null;}
@@ -1265,6 +1269,7 @@ document.addEventListener('click',function(ev){
     }
   }}
   else if(a==='cycle'){var o=byId('orders',id);if(o)sb.from('orders').update({status:ORD_NEXT[o.status]||'הוזמן'}).eq('id',id).then(function(){loadTable('orders');});}
+  else if(a==='photo'&&isPdf(id)){window.open(purl(id),'_blank');}
   else if(a==='photo'){var lb=document.createElement('button');lb.className='lightbox';lb.setAttribute('aria-label','סגור תמונה');lb.innerHTML=isVid(id)?'<video src="'+purl(id)+'" controls autoplay playsinline style="max-width:100%;max-height:100%"></video>':'<img src="'+purl(id)+'" alt="תמונה">';lb.onclick=function(ev){if(ev.target.tagName==='VIDEO')return;lb.remove();if(history.state&&history.state.lb)history.back();};document.body.appendChild(lb);pushOverlay('lb');}
   else if(a==='import'){startImport();}
   else if(a==='addcontact'){var cc=$('#contacts');if(cc){cc.insertAdjacentHTML('beforeend',crowHtml());var ins=cc.querySelectorAll('.c_n');ins[ins.length-1].focus();}}
@@ -1324,7 +1329,7 @@ document.addEventListener('change',function(ev){
     var f=t.files&&t.files[0];if(!f)return;
     if(/^video\//.test(f.type)&&f.size>50*1024*1024){ferr('הסרטון גדול מדי ('+Math.round(f.size/1048576)+'MB). המקסימום 50MB, צלם סרטון קצר יותר.');t.value='';return;}
     ferr('');form.file=f;form.removed=false;
-    var p=$('#phprev');if(p){var isv=/^video\//.test(f.type),im=document.createElement(isv?'video':'img');if(isv){im.controls=true;im.muted=true;im.setAttribute('playsinline','');}else im.alt='';im.src=URL.createObjectURL(f);p.innerHTML='';p.appendChild(im);}
+    var p=$('#phprev');if(p&&/pdf/i.test(f.type)){p.innerHTML='<span class="pdft">PDF</span> '+esc(f.name||'');}else if(p){var isv=/^video\//.test(f.type),im=document.createElement(isv?'video':'img');if(isv){im.controls=true;im.muted=true;im.setAttribute('playsinline','');}else im.alt='';im.src=URL.createObjectURL(f);p.innerHTML='';p.appendChild(im);}
   }else if(t.getAttribute&&t.getAttribute('data-rp')){UI.repPhotos=t.checked;render();
   }else if(t.getAttribute&&t.getAttribute('data-ro')){UI.repOpen=t.checked;render();
   }else if(t.getAttribute&&t.getAttribute('data-tmph')){

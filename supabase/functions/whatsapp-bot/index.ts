@@ -29,7 +29,7 @@ async function downloadMedia(mediaId: string): Promise<{ buf: Uint8Array; mime: 
 }
 async function uploadMedia(buf: Uint8Array, mime: string): Promise<string | null> {
   try {
-    const ext = mime.startsWith("video/") ? (mime.includes("quicktime") ? "mov" : mime.includes("webm") ? "webm" : "mp4") : "jpg";
+    const ext = mime.includes("pdf") ? "pdf" : mime.startsWith("video/") ? (mime.includes("quicktime") ? "mov" : mime.includes("webm") ? "webm" : "mp4") : "jpg";
     const path = `wa/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const up = await db.storage.from("photos").upload(path, buf, { contentType: mime });
     return up.error ? null : path;
@@ -297,7 +297,7 @@ ${common}`;
 
 async function aiParse(c: Ctx, text: string, media: { buf: Uint8Array; mime: string } | null, isVideo: boolean, projects: any[]) {
   const content: any[] = [];
-  if (media && !isVideo) content.push({ type: "image", source: { type: "base64", media_type: media.mime, data: b64(media.buf) } });
+  if (media && !isVideo) content.push(media.mime.includes("pdf") ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64(media.buf) } } : { type: "image", source: { type: "base64", media_type: media.mime, data: b64(media.buf) } });
   content.push({ type: "text", text: (text || "") + (isVideo ? "\n(נשלח וידאו)" : "") || "(תמונה בלי טקסט)" });
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -778,6 +778,11 @@ async function savePlanRec(rec: any, proj: any): Promise<string> {
 }
 async function handleDocument(c: Ctx, caption: string, id: string, filename: string): Promise<string> {
   if (c.role !== "staff") return L(c, "אין לך הרשאה לשלוח קבצים.", "غير مسموح لك بإرسال الملفات.");
+  // a PDF that is a receipt / invoice goes to expenses, not to plans
+  if (/קבלה|קבלת|חשבונית|הוצא|receipt|invoice/i.test(caption + " " + filename) && !/תוכנית|תכנית|שרטוט/.test(caption)) {
+    const dm0 = await downloadMedia(id);
+    if (dm0 && dm0.mime.includes("pdf")) return await route(c, caption || "קבלה", { id, video: false });
+  }
   const dm = await downloadMedia(id);
   if (!dm) return "לא הצלחתי לקבל את הקובץ. נסה שוב.";
   const ext = ((filename.match(/\.([A-Za-z0-9]{1,6})$/) || [])[1] || (dm.mime.includes("pdf") ? "pdf" : "bin")).toLowerCase();
@@ -790,7 +795,7 @@ async function handleDocument(c: Ctx, caption: string, id: string, filename: str
   const proj = matchProject("", caption, pr || []);
   if (proj) return await savePlanRec(rec, proj);
   await savePending(c.from, rec);
-  return "קיבלתי את הקובץ. לאיזה פרויקט לשייך? (" + (pr || []).map((p: any) => p.name).join(", ") + ")\nאפשר לכתוב 'בטל'.";
+  return "קיבלתי את הקובץ. לאיזה פרויקט לשייך אותו כתוכנית? (" + (pr || []).map((p: any) => p.name).join(", ") + ")\nאם זו קבלה, כתוב 'קבלה' ואת שם הפרויקט. אפשר לכתוב 'בטל'.";
 }
 
 // ---------- contacts ----------
@@ -867,10 +872,18 @@ async function route(c: Ctx, text: string, media: { id: string; video: boolean }
     const pp = await peekPending(c.from);
     if (pp && pp.kind === "plan_file") {
       if (NO.test(t)) { await db.from("bot_pending").delete().eq("phone", c.from); return "בוטל. הקובץ נשאר שמור ללא שיוך."; }
+      if (/קבלה|חשבונית|הוצא/.test(t) && pp.ext === "pdf") {
+        await db.from("bot_pending").delete().eq("phone", c.from);
+        const dl = await db.storage.from("photos").download(pp.path);
+        if (dl.data) {
+          mediaCarry = { buf: new Uint8Array(await dl.data.arrayBuffer()), mime: "application/pdf" }; carryPath = pp.path; carryVideo = false;
+          tt = "(קבלה ב-PDF שנשלחה קודם) " + t;
+        }
+      }
       const { data: pr } = await db.from("projects").select("id,name");
-      const proj = t.length <= 60 ? matchProject(t, t, pr || []) : null;
+      const proj = !mediaCarry && t.length <= 60 ? matchProject(t, t, pr || []) : null;
       if (proj) { await db.from("bot_pending").delete().eq("phone", c.from); return await savePlanRec(pp, proj); }
-      if (t.length <= 60) return "לא זיהיתי את הפרויקט. כתוב את שמו (" + (pr || []).map((p: any) => p.name).join(", ") + ") או 'בטל'.";
+      if (!mediaCarry && t.length <= 60) return "לא זיהיתי את הפרויקט. כתוב את שמו (" + (pr || []).map((p: any) => p.name).join(", ") + ") או 'בטל'.";
     }
   }
   // confirmations
