@@ -208,6 +208,7 @@ function actTool(actions: string[]) {
       properties: {
         action: { type: "string", enum: actions },
         project_name: { type: "string", description: "Project name exactly as in the list, or empty" },
+        general: { type: "boolean", description: "add_expense: true for a general expense not tied to any project (fuel, tools, office...)" },
         tasks: {
           type: "array", description: "For add_task: one entry per task",
           items: {
@@ -280,7 +281,7 @@ ${common}`;
 - complete_task / reopen_task: סגירה או פתיחה מחדש של משימה קיימת. title = מילים מזהות.
 - edit_task: שינוי משימה קיימת. title מזהה; new_title/new_title_ar, due, assignee_name לחדשים.
 - delete_task: מחיקת משימה. title מזהה.
-- add_expense: הוצאה או קבלה. בתמונת קבלה קרא סכום כולל (₪), עסק, תאריך ואמצעי תשלום. אמצעי תשלום: אם מופיעות ספרות כרטיס (למשל ****1234), VISA/Mastercard/ישראכרט/כאל/מקס/"אשראי"/"כרטיס"/אישור סליקה => אשראי; אם כתוב "מזומן" או "עודף" => מזומן; אחרת השאר ריק. טקסט המשתמש גובר על התמונה.
+- add_expense: הוצאה או קבלה. אם זו הוצאה כללית שלא שייכת לפרויקט (דלק, כלי עבודה, משרד, 'כללי') שים general=true ו-project_name ריק.  בתמונת קבלה קרא סכום כולל (₪), עסק, תאריך ואמצעי תשלום. אמצעי תשלום: אם מופיעות ספרות כרטיס (למשל ****1234), VISA/Mastercard/ישראכרט/כאל/מקס/"אשראי"/"כרטיס"/אישור סליקה => אשראי; אם כתוב "מזומן" או "עודף" => מזומן; אחרת השאר ריק. טקסט המשתמש גובר על התמונה.
 - edit_expense / delete_expense: הוצאה קיימת. vendor ו/או amount מזהים, או last=true ל"האחרונה". לחדשים: new_amount, new_vendor, pay.
 - expense_summary: כמה הוצאנו. project_name אופציונלי, vendor אופציונלי, pay אופציונלי, period (week/month/all), group_by.
 - project_summary: מצב פרויקט (הוצאות ומשימות).
@@ -504,15 +505,16 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
     }
     // ----- expenses -----
     case "add_expense": {
-      if (!proj) return needProj;
+      const gen = !proj && a.general === true;
+      if (!proj && !gen) return L(c, "לאיזה פרויקט? כתוב את שם הפרויקט (" + P.map((p: any) => p.name).join(", ") + ") או 'כללי' אם זו הוצאה כללית בלי פרויקט.", "");
       const amount = Number(a.amount);
       if (!isFinite(amount) || amount <= 0) return "לא הצלחתי לקרוא סכום. כתוב אותו בהודעה, למשל: 350 חשמל בנימין " + proj.name;
       const pay = a.pay === "מזומן" || a.pay === "אשראי" ? a.pay : null;
       const vendor = String(a.vendor || "").trim() || "ללא ספק";
       const date = DATE_RE.test(a.date || "") ? a.date : ymd(il());
-      const { error } = await db.from("expenses").insert({ project_id: proj.id, vendor, amount, pay, photo: mediaPath, date, note: a.note || null });
+      const { error } = await db.from("expenses").insert({ project_id: proj ? proj.id : null, vendor, amount, pay, photo: mediaPath, date, note: a.note || null });
       if (error) return "לא הצלחתי לשמור את ההוצאה.";
-      return `נשמר ✓ הוצאה ב"${proj.name}": ${vendor} ${num(amount)} ₪${pay ? " · " + pay : ""}${mediaPath ? " · עם קבלה" : ""}`;
+      return `נשמר ✓ הוצאה ${proj ? 'ב"' + proj.name + '"' : "כללית"}: ${vendor} ${num(amount)} ₪${pay ? " · " + pay : ""}${mediaPath ? " · עם קבלה" : ""}`;
     }
     case "edit_expense":
     case "delete_expense": {

@@ -242,7 +242,7 @@ function todayStr(){var d=new Date();return d.getFullYear()+'-'+String(d.getMont
 function pd(s){if(!s)return null;var p=String(s).split('-');if(p.length<3)return null;return new Date(+p[0],+p[1]-1,+p[2]);}
 function fdate(s){var d=pd(s);if(!d)return '';var o={day:'numeric',month:'long'};if(d.getFullYear()!==new Date().getFullYear())o.year='numeric';return d.toLocaleDateString('he-IL',o);}
 function byId(col,id){for(var i=0;i<S[col].length;i++)if(S[col][i].id===id)return S[col][i];if(col==='events'){for(var j=0;j<G.events.length;j++)if(G.events[j].id===id)return G.events[j];}return null;}
-function pname(id){var p=byId('projects',id);return p?p.name:'פרויקט שנמחק';}
+function pname(id){if(!id)return 'כללי';var p=byId('projects',id);return p?p.name:'פרויקט שנמחק';}
 function sum(a){return a.reduce(function(t,x){return t+(Number(x.amount)||0);},0);}
 function chip(cls,t){return '<span class="chip c-'+cls+'">'+esc(t)+'</span>';}
 function purl(path){return PHOTO[path]||BLANK;}
@@ -292,9 +292,9 @@ var F={
   {k:'assigneeId',l:'אחראי (ימתין לביצוע אצל)',t:'assignee'},{k:'due',l:'עד תאריך',t:'date'},{k:'due_time',l:'שעה (לא חובה, תזכורת חצי שעה לפני)',t:'time'},{k:'area',l:'תחום',t:'select',o:areaList,d:'כללי',add:1},{k:'kind',l:'סוג',t:'select',o:['משימה','פגישה'],d:'משימה'},{k:'remind',l:'תזכורת בטלפון (דרך יומן גוגל)',t:'select',o:['ללא','בבוקר של היום (8:00)','יום לפני (18:00)'],d:'ללא'},{k:'status',l:'סטטוס',t:'select',o:['לביצוע','בתהליך','ממתין להחלטה','הושלם'],d:'לביצוע'},
   {k:'notes',l:'הערות',t:'textarea'},{k:'photo',l:'תמונה או וידאו (לא חובה)',t:'photo',vid:1}]},
  expense:{title:'הוצאה / קבלה',col:'expenses',fields:[
-  {k:'photo',l:'תמונת הקבלה או קובץ PDF',t:'photo',pdf:1},{k:'projectId',l:'פרויקט',t:'project',req:1},
-  {k:'vendor',l:'ספק',t:'text',list:'suppliers',req:1},{k:'amount',l:'סכום (₪)',t:'number',req:1},
-  {k:'pay',l:'אמצעי תשלום',t:'select',o:['לא צוין','מזומן','אשראי'],d:'מזומן'},{k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'הערה',t:'text'}]},
+  {k:'photo',l:'תמונת הקבלה או קובץ PDF',t:'photo',pdf:1},{k:'projectId',l:'פרויקט (השאר ריק להוצאה כללית)',t:'project',empty:'הוצאה כללית, בלי פרויקט'},
+  {k:'vendor',l:'ספק / על מה ההוצאה',t:'text',list:'suppliers',req:1},{k:'amount',l:'סכום (₪)',t:'number',req:1},
+  {k:'pay',l:'אמצעי תשלום',t:'select',o:['לא צוין','מזומן','אשראי'],d:'מזומן'},{k:'date',l:'תאריך',t:'date',d:'today'},{k:'note',l:'פירוט / הערה',t:'text'}]},
  supplier:{title:'ספק',col:'suppliers',fields:[
   {k:'name',l:'שם הספק / החנות',t:'text',req:1},{k:'field',l:'תחום / קטגוריה',t:'text',list:'fields'},
   {k:'phone',l:'טלפון החנות',t:'tel'},{k:'contacts',l:'אנשי קשר',t:'contacts'},{k:'notes',l:'הערות',t:'textarea'}]},
@@ -400,7 +400,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 44</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 45</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -425,7 +425,7 @@ function taskRow(showProj,editable,t){
 function sortTasks(a){return a.slice().sort(function(x,y){
   var dx=x.status==='הושלם',dy=y.status==='הושלם';if(dx!==dy)return dx?1:-1;
   return String(x.due||'9999').localeCompare(String(y.due||'9999'));});}
-function projSelect(id,key){return '<div class="fld"><label for="'+id+'" class="sr">פרויקט</label><select id="'+id+'" data-sel="'+key+'"><option value="">כל הפרויקטים</option>'+S.projects.map(function(p){return '<option value="'+esc(p.id)+'"'+(UI[key]===p.id?' selected':'')+'>'+esc(p.name)+'</option>';}).join('')+'</select></div>';}
+function projSelect(id,key){return '<div class="fld"><label for="'+id+'" class="sr">פרויקט</label><select id="'+id+'" data-sel="'+key+'"><option value="">כל הפרויקטים</option>'+(key==='expProject'?'<option value="__gen"'+(UI[key]==='__gen'?' selected':'')+'>הוצאות כלליות (בלי פרויקט)</option>':'')+S.projects.map(function(p){return '<option value="'+esc(p.id)+'"'+(UI[key]===p.id?' selected':'')+'>'+esc(p.name)+'</option>';}).join('')+'</select></div>';}
 
 function vTasks(){
   var list=S.tasks.filter(function(t){
@@ -450,8 +450,9 @@ function expRow(showProj,x){
    '<div class="amt">'+money(x.amount)+'</div></div>';
 }
 function sortExp(a){return a.slice().sort(function(x,y){return String(y.date||'').localeCompare(String(x.date||''));});}
+function expFilt(x){return !UI.expProject||(UI.expProject==='__gen'?!x.projectId:x.projectId===UI.expProject);}
 function vExpenses(){
-  var list=S.expenses.filter(function(x){return !UI.expProject||x.projectId===UI.expProject;});
+  var list=S.expenses.filter(expFilt);
   var mk=todayStr().slice(0,7);
   var month=sum(list.filter(function(x){return String(x.date||'').slice(0,7)===mk;}));
   var h=bandHtml('הוצאות',null,{right:'<button class="btn btn-accent" data-act="add" data-e="expense">'+ico('camera',20)+'קבלה</button>'});
@@ -709,7 +710,7 @@ function repAllFin(){
   h+='<div class="rsum"><div><b>'+money(tot)+'</b><span>סה״כ הוצאות</span></div><div><b>'+money(month)+'</b><span>החודש</span></div><div><b>'+S.expenses.length+'</b><span>תנועות</span></div></div>';
   h+='<h2>לפי פרויקט</h2><table class="rt"><thead><tr><th>פרויקט</th><th class="rd">תקציב</th><th class="rd">הוצאות</th><th class="rd">יתרה</th></tr></thead><tbody>'+ps.map(function(p){
     var sp=sum(S.expenses.filter(function(x){return x.projectId===p.id;})),b=Number(p.budget)||0;
-    return '<tr><td>'+esc(p.name)+'</td><td class="rd">'+(b?money(b):'-')+'</td><td class="rd">'+money(sp)+'</td><td class="rd">'+(b?money(b-sp):'-')+'</td></tr>';}).join('')+'<tr class="rtot"><td>סה״כ</td><td class="rd"></td><td class="rd">'+money(tot)+'</td><td class="rd"></td></tr></tbody></table>';
+    return '<tr><td>'+esc(p.name)+'</td><td class="rd">'+(b?money(b):'-')+'</td><td class="rd">'+money(sp)+'</td><td class="rd">'+(b?money(b-sp):'-')+'</td></tr>';}).join('')+(function(){var g=sum(S.expenses.filter(function(x){return !x.projectId;}));return g?'<tr><td>הוצאות כלליות (בלי פרויקט)</td><td class="rd">-</td><td class="rd">'+money(g)+'</td><td class="rd">-</td></tr>':'';})()+'<tr class="rtot"><td>סה״כ</td><td class="rd"></td><td class="rd">'+money(tot)+'</td><td class="rd"></td></tr></tbody></table>';
   var vs=Object.keys(byV).sort(function(a,b){return byV[b]-byV[a];}).slice(0,15);
   if(vs.length)h+='<h2>ספקים מובילים</h2><table class="rt"><tbody>'+vs.map(function(v){return '<tr><td>'+esc(v)+'</td><td class="rd">'+money(byV[v])+'</td></tr>';}).join('')+'</tbody></table>';
   return h;
@@ -848,10 +849,10 @@ function vWorker(){
     h+='<div style="text-align:center;margin:18px 0 6px"><button class="link" data-act="wshowdone">'+(WK.showDone?'إخفاء المنجزة':'عرض المهام المنجزة ('+done.length+')')+'</button></div>';
     if(WK.showDone)h+='<div class="stack">'+done.map(row).join('')+'</div>';
   }
-  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v44</div></main>';
+  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v45</div></main>';
 }
 function vAccountant(){
-  var list=S.expenses.filter(function(x){return !UI.expProject||x.projectId===UI.expProject;});
+  var list=S.expenses.filter(expFilt);
   var h=bandHtml('הוצאות','פדר בניה · רואה חשבון',{right:'<img class="logo" src="'+LOGO+'" alt="פדר">'});
   h+='<main class="wrap"><div class="card pull stat"><div class="k">סה״כ הוצאות'+(UI.expProject?' בפרויקט':'')+'</div><div class="v">'+money(sum(list))+'</div></div><div style="margin-top:14px">'+projSelect('eproj','expProject')+'</div>';
   h+=list.length?'<div class="stack">'+sortExp(list).map(expRowRO).join('')+'</div>':emptyBox('אין הוצאות להצגה.');
@@ -953,8 +954,8 @@ async function savePsup(){
 }
 
 /* ---------- forms ---------- */
-function projOptions(sel){
-  return '<option value="">בחר פרויקט</option>'+sortedProjects().map(function(p){return '<option value="'+esc(p.id)+'"'+(sel===p.id?' selected':'')+'>'+esc(p.name)+'</option>';}).join('');
+function projOptions(sel,emp){
+  return '<option value="">'+esc(emp||'בחר פרויקט')+'</option>'+sortedProjects().map(function(p){return '<option value="'+esc(p.id)+'"'+(sel===p.id?' selected':'')+'>'+esc(p.name)+'</option>';}).join('');
 }
 function supOptions(sel){
   return '<option value="">ללא</option>'+S.suppliers.slice().sort(function(a,b){return String(a.name).localeCompare(String(b.name),'he');}).map(function(p){return '<option value="'+esc(p.id)+'"'+(sel===p.id?' selected':'')+'>'+esc(p.name)+(p.field?' · '+esc(p.field):'')+'</option>';}).join('');
@@ -966,7 +967,7 @@ function crowHtml(c){
 function fieldHtml(f,val){
   var id='f_'+f.k,inp='';
   if(f.t==='textarea')inp='<textarea id="'+id+'">'+esc(val)+'</textarea>';
-  else if(f.t==='project')inp='<select id="'+id+'">'+projOptions(val)+'</select>';
+  else if(f.t==='project')inp='<select id="'+id+'">'+projOptions(val,f.empty)+'</select>';
   else if(f.t==='assignee')inp='<select id="'+id+'">'+assigneeOptions(val)+'</select>';
   else if(f.t==='supplier')inp='<select id="'+id+'">'+supOptions(val)+'</select>';
   else if(f.t==='select'){var fo=typeof f.o==='function'?f.o():f.o;inp='<select id="'+id+'">'+(val&&fo.indexOf(val)<0?[val].concat(fo):fo).map(function(o){return '<option'+(val===o?' selected':'')+'>'+esc(o)+'</option>';}).join('')+(f.add?'<option value="__new__">➕ תחום חדש…</option>':'')+'</select>';}
@@ -996,7 +997,7 @@ function openForm(e,id,defs){
   var html='<div class="scrim" data-act="closeSheet"></div><form class="sheet" id="frm" role="dialog" aria-modal="true" aria-labelledby="sh_t" novalidate><h2 id="sh_t" tabindex="-1">'+(doc?'עריכת ':'חדש: ')+esc(cfg.title)+'</h2>';
   cfg.fields.forEach(function(f){
     var v=doc?doc[f.k]:(defs[f.k]!=null?defs[f.k]:(f.d==='today'?todayStr():(f.d||'')));
-    if(!doc&&f.t==='project'&&!v&&S.projects.length===1)v=S.projects[0].id;
+    if(!doc&&f.t==='project'&&f.req&&!v&&S.projects.length===1)v=S.projects[0].id;
     if(v==null)v='';
     html+=fieldHtml(f,v);
   });

@@ -208,6 +208,7 @@ function actTool(actions: string[]) {
       properties: {
         action: { type: "string", enum: actions },
         project_name: { type: "string", description: "Project name exactly as in the list, or empty" },
+        general: { type: "boolean", description: "add_expense: true for a general expense not tied to any project (fuel, tools, office...)" },
         tasks: {
           type: "array", description: "For add_task: one entry per task",
           items: {

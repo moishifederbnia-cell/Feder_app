@@ -1,3 +1,5 @@
+            remNote = hasTime ? ` · תזכורת ${rm ? rm + " דק' לפני" : "בזמן האירוע"}` : " · תזכורת בבוקר";
+          }
         }
       }
       return `נשמר ✓ ביומן: ${title} · ${fmtD(date)}${hasTime ? " " + time : " (כל היום)"}${a.location ? " · " + a.location : ""}${remNote}\n(יעבור ליומן גוגל כשתפתח את האפליקציה)`;
