@@ -228,6 +228,8 @@ function actTool(actions: string[]) {
         },
         title: { type: "string", description: "Words identifying an existing task (complete/reopen/edit/delete), or a doc/event title" },
         new_title: { type: "string", description: "edit_task: new task text in Hebrew" },
+        new_project_name: { type: "string", description: "edit_task / edit_expense: move the item to this project (exact name from the list)" },
+        new_area: { type: "string", description: "edit_task: new area (תחום)" },
         new_title_ar: { type: "string", description: "edit_task: new task text in Arabic" },
         due: { type: "string", description: "YYYY-MM-DD (edit_task new due / event date) or empty" },
         assignee_name: { type: "string", description: "Team member (edit_task new assignee, or list_tasks filter)" },
@@ -265,7 +267,8 @@ function systemPrompt(c: Ctx, projects: any[]) {
   const common = `היום: ${ymd(d)} (יום ${wd}), שעון ישראל. חשב תאריכים יחסיים ("מחר", "יום ראשון הבא", "בעוד שבוע") לפי היום.
 פרויקטים: ${projects.map((p) => p.name).join(" | ") || "(אין)"}.
 אנשי צוות: ${team || "(אין)"}.
-project_name חייב להיות אחד מהשמות ברשימה בדיוק, או ריק אם לא ברור. בחר פעולה אחת בלבד.`;
+project_name חייב להיות אחד מהשמות ברשימה בדיוק, או ריק אם לא ברור. בחר פעולה אחת בלבד.
+מוצגות לפניך ההודעות האחרונות בשיחה (עד 10 דקות). אם המשתמש מתקן או משלים ('לא, התכוונתי...', 'זה לא לנוף', 'תשנה ל...', 'תוסיף שעה', 'ביטלתי'), התייחס להוראה הקודמת ופעל עליה: אם משהו כבר נשמר, השתמש ב-edit_task / edit_expense / delete_* עם title או vendor מזהים מההודעה הקודמת (project_name = הפרויקט הנוכחי של הפריט לזיהוי, new_project_name = הפרויקט החדש). אם ההוראה הקודמת לא בוצעה כי חסר פרט, השלם אותה כעת. אל תשחזר פעולה שכבר נשמרה.`;
   if (c.role === "worker") {
     return `אתה עוזר בוואטסאפ של חברת בנייה (פדר בניה) שמדבר עם פועל שטח בשם ${c.name || "הפועל"}. הוא כותב בערבית או בעברית.
 הוא מורשה רק: לראות משימות (list_tasks), לסגור משימה (complete_task) או לפתוח מחדש (reopen_task), לשלוח תיעוד של עבודה בתמונה או וידאו (add_doc), או לשאול שאלה כללית (chat).
@@ -296,17 +299,35 @@ ${common}`;
 ${common}`;
 }
 
+// ---------- short conversation memory (last ~10 minutes), stored in bot_pending under key "mem:<phone>" ----------
+const MEM_TTL = 10 * 60 * 1000;
+async function loadMem(from: string): Promise<{ u: string; b: string; t: number }[]> {
+  try {
+    const { data } = await db.from("bot_pending").select("payload").eq("phone", "mem:" + from).maybeSingle();
+    const turns = (data?.payload?.turns || []) as any[];
+    return turns.filter((x) => x && x.t > Date.now() - MEM_TTL).slice(-6);
+  } catch (_e) { return []; }
+}
+async function saveMem(from: string, u: string, b: string) {
+  try {
+    const turns = await loadMem(from);
+    turns.push({ u: String(u || "").slice(0, 700), b: String(b || "").slice(0, 700), t: Date.now() });
+    await db.from("bot_pending").upsert({ phone: "mem:" + from, payload: { kind: "mem", turns: turns.slice(-6) }, created_at: new Date().toISOString() });
+  } catch (_e) { /* memory is best-effort */ }
+}
+
 async function aiParse(c: Ctx, text: string, media: { buf: Uint8Array; mime: string } | null, isVideo: boolean, projects: any[]) {
   const content: any[] = [];
   if (media && !isVideo) content.push(media.mime.includes("pdf") ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64(media.buf) } } : { type: "image", source: { type: "base64", media_type: media.mime, data: b64(media.buf) } });
   content.push({ type: "text", text: (text || "") + (isVideo ? "\n(נשלח וידאו)" : "") || "(תמונה בלי טקסט)" });
+  const hist = await loadMem(c.from);
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": AI_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify({
       model: AI_MODEL, max_tokens: 3000, system: systemPrompt(c, projects),
       tools: [actTool(c.role === "worker" ? WORKER_ACTIONS : STAFF_ACTIONS)], tool_choice: { type: "tool", name: "act" },
-      messages: [{ role: "user", content }],
+      messages: [...hist.flatMap((x) => [{ role: "user", content: [{ type: "text", text: x.u || "(הודעה)" }] }, { role: "assistant", content: [{ type: "text", text: x.b || "(אישור)" }] }]), { role: "user", content }],
     }),
   });
   if (!res.ok) throw new Error("ai " + res.status);
@@ -491,7 +512,9 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
       if (DATE_RE.test(a.due || "")) { patch.due = a.due; parts.push(`תאריך: ${fmtD(a.due)}`); }
       let mem: any = null;
       if (a.assignee_name) { mem = matchMember(a.assignee_name, c.team); if (mem) { patch.assignee_id = mem.id; parts.push(`אחראי: ${mem.name}`); } }
-      if (!parts.length) return "מה לשנות במשימה? (טקסט, תאריך או אחראי)";
+      if (a.new_project_name) { const np = matchProject(a.new_project_name, "", P); if (np) { patch.project_id = np.id; parts.push(`פרויקט: ${np.name}`); } }
+      if (a.new_area) { patch.area = String(a.new_area).trim(); parts.push(`תחום: ${patch.area}`); }
+      if (!parts.length) return "מה לשנות במשימה? (טקסט, תאריך, אחראי, פרויקט או תחום)";
       const label = `"${t.title}" → ${parts.join(", ")}`;
       await savePending(c.from, { kind: "edit_task", id: t.id, patch, label, title_for_push: a.new_title || t.title, title_ar_for_push: a.new_title_ar || t.title_ar || null, project_name: pNames[t.project_id] });
       return `לשנות ${label}?\nכתוב "כן" לאישור.`;
@@ -536,7 +559,8 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
       if (a.new_amount) { patch.amount = Number(a.new_amount); parts.push(`סכום ${num(a.new_amount)} ₪`); }
       if (a.new_vendor) { patch.vendor = a.new_vendor; parts.push(`ספק ${a.new_vendor}`); }
       if (a.pay === "מזומן" || a.pay === "אשראי") { patch.pay = a.pay; parts.push(a.pay); }
-      if (!parts.length) return "מה לשנות בהוצאה? (סכום, ספק או אמצעי תשלום)";
+      if (a.new_project_name) { const np = matchProject(a.new_project_name, "", P); if (np) { patch.project_id = np.id; parts.push(`פרויקט ${np.name}`); } }
+      if (!parts.length) return "מה לשנות בהוצאה? (סכום, ספק, פרויקט או אמצעי תשלום)";
       await savePending(c.from, { kind: "edit_expense", id: x.id, patch, label: `ההוצאה ${lbl} → ${parts.join(", ")}` });
       return `לעדכן את ההוצאה ${lbl} ל: ${parts.join(", ")}?\nכתוב "כן" לאישור.`;
     }
@@ -946,6 +970,14 @@ async function processMessages(msgs: any[]) {
       else if (m.type === "contacts") out = await handleContacts(c, m.contacts || []);
       else if (m.type === "document") out = await handleDocument(c, m.document?.caption || "", m.document.id, m.document?.filename || "");
       else out = L(c, "אני מבין טקסט, תמונות, וידאו וקבצים בלבד.", "أفهم النصوص والصور والفيديو والملفات فقط.");
+      {
+        let uText = "";
+        if (m.type === "text") uText = m.text?.body || "";
+        else if (m.type === "image" || m.type === "video") uText = "[" + (m.type === "image" ? "תמונה" : "וידאו") + "] " + ((m[m.type]?.caption) || "");
+        else if (m.type === "audio") { const mm = /"([^"]*)"/.exec(out); uText = "[הודעה קולית] " + (mm ? mm[1] : ""); }
+        else if (m.type === "document") uText = "[קובץ] " + (m.document?.caption || m.document?.filename || "");
+        if (uText) await saveMem(from, uText, out);
+      }
       await reply(from, out);
     } catch (_e) {
       try { await reply(from, "משהו השתבש, נסה שוב."); } catch (_e2) { /* ignore */ }

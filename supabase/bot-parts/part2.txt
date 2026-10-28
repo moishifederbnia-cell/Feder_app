@@ -20,17 +20,35 @@
 ${common}`;
 }
 
+// ---------- short conversation memory (last ~10 minutes), stored in bot_pending under key "mem:<phone>" ----------
+const MEM_TTL = 10 * 60 * 1000;
+async function loadMem(from: string): Promise<{ u: string; b: string; t: number }[]> {
+  try {
+    const { data } = await db.from("bot_pending").select("payload").eq("phone", "mem:" + from).maybeSingle();
+    const turns = (data?.payload?.turns || []) as any[];
+    return turns.filter((x) => x && x.t > Date.now() - MEM_TTL).slice(-6);
+  } catch (_e) { return []; }
+}
+async function saveMem(from: string, u: string, b: string) {
+  try {
+    const turns = await loadMem(from);
+    turns.push({ u: String(u || "").slice(0, 700), b: String(b || "").slice(0, 700), t: Date.now() });
+    await db.from("bot_pending").upsert({ phone: "mem:" + from, payload: { kind: "mem", turns: turns.slice(-6) }, created_at: new Date().toISOString() });
+  } catch (_e) { /* memory is best-effort */ }
+}
+
 async function aiParse(c: Ctx, text: string, media: { buf: Uint8Array; mime: string } | null, isVideo: boolean, projects: any[]) {
   const content: any[] = [];
   if (media && !isVideo) content.push(media.mime.includes("pdf") ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: b64(media.buf) } } : { type: "image", source: { type: "base64", media_type: media.mime, data: b64(media.buf) } });
   content.push({ type: "text", text: (text || "") + (isVideo ? "\n(נשלח וידאו)" : "") || "(תמונה בלי טקסט)" });
+  const hist = await loadMem(c.from);
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": AI_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
     body: JSON.stringify({
       model: AI_MODEL, max_tokens: 3000, system: systemPrompt(c, projects),
       tools: [actTool(c.role === "worker" ? WORKER_ACTIONS : STAFF_ACTIONS)], tool_choice: { type: "tool", name: "act" },
-      messages: [{ role: "user", content }],
+      messages: [...hist.flatMap((x) => [{ role: "user", content: [{ type: "text", text: x.u || "(הודעה)" }] }, { role: "assistant", content: [{ type: "text", text: x.b || "(אישור)" }] }]), { role: "user", content }],
     }),
   });
   if (!res.ok) throw new Error("ai " + res.status);
@@ -211,8 +229,3 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
       if (!hits.length) return "לא מצאתי משימה פתוחה כזאת.";
       if (hits.length > 1) return "מצאתי כמה משימות:\n" + hits.slice(0, 6).map((t: any) => "• " + t.title).join("\n") + "\nכתוב את השם המדויק.";
       const t = hits[0]; const patch: any = {}; const parts: string[] = [];
-      if (a.new_title) { patch.title = a.new_title; patch.title_ar = a.new_title_ar || null; parts.push(`טקסט: ${a.new_title}`); }
-      if (DATE_RE.test(a.due || "")) { patch.due = a.due; parts.push(`תאריך: ${fmtD(a.due)}`); }
-      let mem: any = null;
-      if (a.assignee_name) { mem = matchMember(a.assignee_name, c.team); if (mem) { patch.assignee_id = mem.id; parts.push(`אחראי: ${mem.name}`); } }
-      if (!parts.length) return "מה לשנות במשימה? (טקסט, תאריך או אחראי)";

@@ -1,3 +1,4 @@
+      const to = scope === "today" ? today : scope === "tomorrow" ? addDays(today, 1) : addDays(today, 7);
       const { data } = await db.from("events").select("title,start_at,all_day,location").gte("start_at", ilToUtc(from, "00:00")).lt("start_at", ilToUtc(addDays(to, 1), "00:00")).order("start_at", { ascending: true }).limit(25);
       if (!data?.length) return "אין אירועים ביומן בתקופה הזאת.\n(מוצגים רק אירועים שנשמרו באפליקציה/בבוט, לא כל יומן גוגל.)";
       return "ביומן:\n" + data.map((e: any) => {
@@ -228,6 +229,14 @@ async function processMessages(msgs: any[]) {
       else if (m.type === "contacts") out = await handleContacts(c, m.contacts || []);
       else if (m.type === "document") out = await handleDocument(c, m.document?.caption || "", m.document.id, m.document?.filename || "");
       else out = L(c, "אני מבין טקסט, תמונות, וידאו וקבצים בלבד.", "أفهم النصوص والصور والفيديو والملفات فقط.");
+      {
+        let uText = "";
+        if (m.type === "text") uText = m.text?.body || "";
+        else if (m.type === "image" || m.type === "video") uText = "[" + (m.type === "image" ? "תמונה" : "וידאו") + "] " + ((m[m.type]?.caption) || "");
+        else if (m.type === "audio") { const mm = /"([^"]*)"/.exec(out); uText = "[הודעה קולית] " + (mm ? mm[1] : ""); }
+        else if (m.type === "document") uText = "[קובץ] " + (m.document?.caption || m.document?.filename || "");
+        if (uText) await saveMem(from, uText, out);
+      }
       await reply(from, out);
     } catch (_e) {
       try { await reply(from, "משהו השתבש, נסה שוב."); } catch (_e2) { /* ignore */ }

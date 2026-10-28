@@ -1,3 +1,10 @@
+      if (a.new_title) { patch.title = a.new_title; patch.title_ar = a.new_title_ar || null; parts.push(`טקסט: ${a.new_title}`); }
+      if (DATE_RE.test(a.due || "")) { patch.due = a.due; parts.push(`תאריך: ${fmtD(a.due)}`); }
+      let mem: any = null;
+      if (a.assignee_name) { mem = matchMember(a.assignee_name, c.team); if (mem) { patch.assignee_id = mem.id; parts.push(`אחראי: ${mem.name}`); } }
+      if (a.new_project_name) { const np = matchProject(a.new_project_name, "", P); if (np) { patch.project_id = np.id; parts.push(`פרויקט: ${np.name}`); } }
+      if (a.new_area) { patch.area = String(a.new_area).trim(); parts.push(`תחום: ${patch.area}`); }
+      if (!parts.length) return "מה לשנות במשימה? (טקסט, תאריך, אחראי, פרויקט או תחום)";
       const label = `"${t.title}" → ${parts.join(", ")}`;
       await savePending(c.from, { kind: "edit_task", id: t.id, patch, label, title_for_push: a.new_title || t.title, title_ar_for_push: a.new_title_ar || t.title_ar || null, project_name: pNames[t.project_id] });
       return `לשנות ${label}?\nכתוב "כן" לאישור.`;
@@ -42,7 +49,8 @@
       if (a.new_amount) { patch.amount = Number(a.new_amount); parts.push(`סכום ${num(a.new_amount)} ₪`); }
       if (a.new_vendor) { patch.vendor = a.new_vendor; parts.push(`ספק ${a.new_vendor}`); }
       if (a.pay === "מזומן" || a.pay === "אשראי") { patch.pay = a.pay; parts.push(a.pay); }
-      if (!parts.length) return "מה לשנות בהוצאה? (סכום, ספק או אמצעי תשלום)";
+      if (a.new_project_name) { const np = matchProject(a.new_project_name, "", P); if (np) { patch.project_id = np.id; parts.push(`פרויקט ${np.name}`); } }
+      if (!parts.length) return "מה לשנות בהוצאה? (סכום, ספק, פרויקט או אמצעי תשלום)";
       await savePending(c.from, { kind: "edit_expense", id: x.id, patch, label: `ההוצאה ${lbl} → ${parts.join(", ")}` });
       return `לעדכן את ההוצאה ${lbl} ל: ${parts.join(", ")}?\nכתוב "כן" לאישור.`;
     }
@@ -221,4 +229,3 @@
       const today = ymd(il());
       const scope = a.scope || "today";
       const from = scope === "tomorrow" ? addDays(today, 1) : today;
-      const to = scope === "today" ? today : scope === "tomorrow" ? addDays(today, 1) : addDays(today, 7);

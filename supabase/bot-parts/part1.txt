@@ -228,6 +228,8 @@ function actTool(actions: string[]) {
         },
         title: { type: "string", description: "Words identifying an existing task (complete/reopen/edit/delete), or a doc/event title" },
         new_title: { type: "string", description: "edit_task: new task text in Hebrew" },
+        new_project_name: { type: "string", description: "edit_task / edit_expense: move the item to this project (exact name from the list)" },
+        new_area: { type: "string", description: "edit_task: new area (תחום)" },
         new_title_ar: { type: "string", description: "edit_task: new task text in Arabic" },
         due: { type: "string", description: "YYYY-MM-DD (edit_task new due / event date) or empty" },
         assignee_name: { type: "string", description: "Team member (edit_task new assignee, or list_tasks filter)" },
@@ -265,7 +267,8 @@ function systemPrompt(c: Ctx, projects: any[]) {
   const common = `היום: ${ymd(d)} (יום ${wd}), שעון ישראל. חשב תאריכים יחסיים ("מחר", "יום ראשון הבא", "בעוד שבוע") לפי היום.
 פרויקטים: ${projects.map((p) => p.name).join(" | ") || "(אין)"}.
 אנשי צוות: ${team || "(אין)"}.
-project_name חייב להיות אחד מהשמות ברשימה בדיוק, או ריק אם לא ברור. בחר פעולה אחת בלבד.`;
+project_name חייב להיות אחד מהשמות ברשימה בדיוק, או ריק אם לא ברור. בחר פעולה אחת בלבד.
+מוצגות לפניך ההודעות האחרונות בשיחה (עד 10 דקות). אם המשתמש מתקן או משלים ('לא, התכוונתי...', 'זה לא לנוף', 'תשנה ל...', 'תוסיף שעה', 'ביטלתי'), התייחס להוראה הקודמת ופעל עליה: אם משהו כבר נשמר, השתמש ב-edit_task / edit_expense / delete_* עם title או vendor מזהים מההודעה הקודמת (project_name = הפרויקט הנוכחי של הפריט לזיהוי, new_project_name = הפרויקט החדש). אם ההוראה הקודמת לא בוצעה כי חסר פרט, השלם אותה כעת. אל תשחזר פעולה שכבר נשמרה.`;
   if (c.role === "worker") {
     return `אתה עוזר בוואטסאפ של חברת בנייה (פדר בניה) שמדבר עם פועל שטח בשם ${c.name || "הפועל"}. הוא כותב בערבית או בעברית.
 הוא מורשה רק: לראות משימות (list_tasks), לסגור משימה (complete_task) או לפתוח מחדש (reopen_task), לשלוח תיעוד של עבודה בתמונה או וידאו (add_doc), או לשאול שאלה כללית (chat).
