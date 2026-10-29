@@ -195,7 +195,7 @@ const STAFF_ACTIONS = [
   "find_supplier", "add_supplier", "link_supplier",
   "add_order", "update_order", "list_orders",
   "add_doc", "add_supplier_doc",
-  "add_event", "list_events", "chat",
+  "add_event", "list_events", "add_gantt", "update_gantt", "list_gantt", "chat",
 ];
 const WORKER_ACTIONS = ["list_tasks", "complete_task", "reopen_task", "add_doc", "chat"];
 
@@ -209,6 +209,20 @@ function actTool(actions: string[]) {
         action: { type: "string", enum: actions },
         project_name: { type: "string", description: "Project name exactly as in the list, or empty" },
         general: { type: "boolean", description: "add_expense: true for a general expense not tied to any project (fuel, tools, office...)" },
+        stages: {
+          type: "array", description: "For add_gantt: one entry per stage of the project schedule (Gantt)",
+          items: { type: "object", properties: {
+            title: { type: "string", description: "Stage name in Hebrew" },
+            start: { type: "string", description: "YYYY-MM-DD start date" },
+            end: { type: "string", description: "YYYY-MM-DD end date (compute from a stated duration)" },
+            area: { type: "string", description: "Trade/area: כללי, ריצוף, חשמל, אינסטלציה, טיח, איטום, צבע, בנייה, הריסה or another" },
+            pct: { type: "integer", description: "Progress 0-100, default 0" },
+          }, required: ["title", "start", "end"] },
+        },
+        gantt_title: { type: "string", description: "update_gantt: identifying words of the existing stage" },
+        pct: { type: "integer", description: "update_gantt: new progress percent 0-100" },
+        start: { type: "string", description: "update_gantt: new start date YYYY-MM-DD" },
+        end: { type: "string", description: "update_gantt: new end date YYYY-MM-DD" },
         tasks: {
           type: "array", description: "For add_task: one entry per task",
           items: {
@@ -293,6 +307,7 @@ ${common}`;
 - add_order: הזמנת חומר (item, supplier_name אופציונלי, status). update_order: item מזהה + status חדש. list_orders: הזמנות פתוחות.
 - add_doc: תיעוד עבודה באתר (תמונה או וידאו שאינם קבלה). title קצר, stage אם ברור.
 - add_supplier_doc: תעודת משלוח או תיעוד שקשור לספק (supplier_name, kind).
+- add_gantt: שלבים בלוח הגאנט (לוח זמנים) של פרויקט: stages = רשימה, לכל שלב title, start, end (חשב מתאריך התחלה ומשך), area, pct. update_gantt: gantt_title מזהה + pct/start/end חדשים. list_gantt: הצג את לוח הזמנים של פרויקט.
 - add_event: פגישה/אירוע ביומן. title, due=התאריך (YYYY-MM-DD), time (HH:MM) אם יש, location, remind_minutes.
 - list_events: מה ביומן. scope today/tomorrow/week.
 - chat: כל דבר אחר או כשחסר פרט הכרחי. ב-reply משפט קצר בעברית ושאלה על מה שחסר.
@@ -735,6 +750,41 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
       }
       return `נשמר ✓ ביומן: ${title} · ${fmtD(date)}${hasTime ? " " + time : " (כל היום)"}${a.location ? " · " + a.location : ""}${remNote}\n(יעבור ליומן גוגל כשתפתח את האפליקציה)`;
     }
+    // ----- gantt -----
+    case "add_gantt": {
+      if (!proj) return needProj;
+      const st: any[] = Array.isArray(a.stages) ? a.stages : [];
+      const rows = st.filter((x) => String(x.title || "").trim() && DATE_RE.test(x.start || "") && DATE_RE.test(x.end || "")).map((x) => ({
+        project_id: proj.id, title: String(x.title).trim(), start_date: x.start, end_date: x.end < x.start ? x.start : x.end,
+        area: String(x.area || "").trim() || (["ריצוף", "חשמל", "אינסטלציה", "טיח", "איטום", "צבע", "בנייה", "הריסה"].find((k) => String(x.title).includes(k)) || "כללי"), pct: Math.max(0, Math.min(100, Math.round(Number(x.pct) || 0))),
+      }));
+      if (!rows.length) return "לא הבנתי את השלבים. כתוב שם שלב ותאריכי התחלה וסיום, למשל: ריצוף מה-1.11 עד 20.11.";
+      const { error } = await db.from("gantt_items").insert(rows);
+      if (error) return "לא הצלחתי לשמור בלוח הגאנט. ודא שהרצת את ה-SQL של הגאנט.";
+      return `נשמר ✓ בלוח הגאנט של "${proj.name}":\n` + rows.map((r) => `• ${r.title}: ${fmtD(r.start_date)} – ${fmtD(r.end_date)}`).join("\n");
+    }
+    case "update_gantt": {
+      let q = db.from("gantt_items").select("id,title,project_id,start_date,end_date,pct");
+      if (proj && a.project_name) q = q.eq("project_id", proj.id);
+      const { data } = await q.limit(80);
+      const key = norm(a.gantt_title || a.title || "");
+      const hits = (data || []).filter((g: any) => key && (norm(g.title).includes(key) || key.includes(norm(g.title))));
+      if (!hits.length) return "לא מצאתי שלב כזה בלוח הגאנט.";
+      if (hits.length > 1) return "מצאתי כמה שלבים:\n" + hits.slice(0, 6).map((g: any) => `• ${g.title} (${pNames[g.project_id] || ""})`).join("\n") + "\nכתוב שם מדויק או את הפרויקט.";
+      const g = hits[0]; const patch: any = {}; const parts: string[] = [];
+      if (a.pct !== undefined && a.pct !== null && isFinite(Number(a.pct))) { patch.pct = Math.max(0, Math.min(100, Math.round(Number(a.pct)))); parts.push(`התקדמות ${patch.pct}%`); }
+      if (DATE_RE.test(a.start || "")) { patch.start_date = a.start; parts.push(`התחלה ${fmtD(a.start)}`); }
+      if (DATE_RE.test(a.end || "")) { patch.end_date = a.end; parts.push(`סיום ${fmtD(a.end)}`); }
+      if (!parts.length) return "מה לעדכן בשלב? (אחוז התקדמות, תאריך התחלה או סיום)";
+      const { error } = await db.from("gantt_items").update(patch).eq("id", g.id);
+      return error ? "לא הצלחתי לעדכן." : `עודכן ✓ "${g.title}" (${pNames[g.project_id] || ""}): ${parts.join(", ")}`;
+    }
+    case "list_gantt": {
+      if (!proj) return needProj;
+      const { data } = await db.from("gantt_items").select("title,start_date,end_date,pct,area").eq("project_id", proj.id).order("start_date");
+      if (!data || !data.length) return `אין שלבים בלוח הגאנט של "${proj.name}".`;
+      return `לוח הזמנים של "${proj.name}":\n` + data.map((g: any) => `• ${g.title}: ${fmtD(g.start_date)} – ${fmtD(g.end_date)}${g.pct ? " · " + g.pct + "%" : ""}`).join("\n");
+    }
     case "list_events": {
       const today = ymd(il());
       const scope = a.scope || "today";
@@ -771,6 +821,7 @@ function helpText(c: Ctx) {
 • תיעוד: תמונה או וידאו עם "הנוף חשמל"
 • תעודת משלוח: תמונה עם "תעודת משלוח בנימין הנוף"
 • הזמנה בנוף: ברזל / הברזל הגיע
+• גאנט בנוף: ריצוף מ-1.11 למשך 3 שבועות / ריצוף בנוף 50%
 • טלפון של בנימין / ספק חדש...
 • פגישה מחר ב-10 בנוף עם הלקוח / מה ביומן
 מחיקה ועריכה תמיד מחכות לאישור "כן".`;

@@ -1,3 +1,18 @@
+      if (DATE_RE.test(a.end || "")) { patch.end_date = a.end; parts.push(`סיום ${fmtD(a.end)}`); }
+      if (!parts.length) return "מה לעדכן בשלב? (אחוז התקדמות, תאריך התחלה או סיום)";
+      const { error } = await db.from("gantt_items").update(patch).eq("id", g.id);
+      return error ? "לא הצלחתי לעדכן." : `עודכן ✓ "${g.title}" (${pNames[g.project_id] || ""}): ${parts.join(", ")}`;
+    }
+    case "list_gantt": {
+      if (!proj) return needProj;
+      const { data } = await db.from("gantt_items").select("title,start_date,end_date,pct,area").eq("project_id", proj.id).order("start_date");
+      if (!data || !data.length) return `אין שלבים בלוח הגאנט של "${proj.name}".`;
+      return `לוח הזמנים של "${proj.name}":\n` + data.map((g: any) => `• ${g.title}: ${fmtD(g.start_date)} – ${fmtD(g.end_date)}${g.pct ? " · " + g.pct + "%" : ""}`).join("\n");
+    }
+    case "list_events": {
+      const today = ymd(il());
+      const scope = a.scope || "today";
+      const from = scope === "tomorrow" ? addDays(today, 1) : today;
       const to = scope === "today" ? today : scope === "tomorrow" ? addDays(today, 1) : addDays(today, 7);
       const { data } = await db.from("events").select("title,start_at,all_day,location").gte("start_at", ilToUtc(from, "00:00")).lt("start_at", ilToUtc(addDays(to, 1), "00:00")).order("start_at", { ascending: true }).limit(25);
       if (!data?.length) return "אין אירועים ביומן בתקופה הזאת.\n(מוצגים רק אירועים שנשמרו באפליקציה/בבוט, לא כל יומן גוגל.)";
@@ -30,6 +45,7 @@ function helpText(c: Ctx) {
 • תיעוד: תמונה או וידאו עם "הנוף חשמל"
 • תעודת משלוח: תמונה עם "תעודת משלוח בנימין הנוף"
 • הזמנה בנוף: ברזל / הברזל הגיע
+• גאנט בנוף: ריצוף מ-1.11 למשך 3 שבועות / ריצוף בנוף 50%
 • טלפון של בנימין / ספק חדש...
 • פגישה מחר ב-10 בנוף עם הלקוח / מה ביומן
 מחיקה ועריכה תמיד מחכות לאישור "כן".`;

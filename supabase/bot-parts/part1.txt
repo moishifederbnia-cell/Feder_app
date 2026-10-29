@@ -195,7 +195,7 @@ const STAFF_ACTIONS = [
   "find_supplier", "add_supplier", "link_supplier",
   "add_order", "update_order", "list_orders",
   "add_doc", "add_supplier_doc",
-  "add_event", "list_events", "chat",
+  "add_event", "list_events", "add_gantt", "update_gantt", "list_gantt", "chat",
 ];
 const WORKER_ACTIONS = ["list_tasks", "complete_task", "reopen_task", "add_doc", "chat"];
 
@@ -209,6 +209,20 @@ function actTool(actions: string[]) {
         action: { type: "string", enum: actions },
         project_name: { type: "string", description: "Project name exactly as in the list, or empty" },
         general: { type: "boolean", description: "add_expense: true for a general expense not tied to any project (fuel, tools, office...)" },
+        stages: {
+          type: "array", description: "For add_gantt: one entry per stage of the project schedule (Gantt)",
+          items: { type: "object", properties: {
+            title: { type: "string", description: "Stage name in Hebrew" },
+            start: { type: "string", description: "YYYY-MM-DD start date" },
+            end: { type: "string", description: "YYYY-MM-DD end date (compute from a stated duration)" },
+            area: { type: "string", description: "Trade/area: כללי, ריצוף, חשמל, אינסטלציה, טיח, איטום, צבע, בנייה, הריסה or another" },
+            pct: { type: "integer", description: "Progress 0-100, default 0" },
+          }, required: ["title", "start", "end"] },
+        },
+        gantt_title: { type: "string", description: "update_gantt: identifying words of the existing stage" },
+        pct: { type: "integer", description: "update_gantt: new progress percent 0-100" },
+        start: { type: "string", description: "update_gantt: new start date YYYY-MM-DD" },
+        end: { type: "string", description: "update_gantt: new end date YYYY-MM-DD" },
         tasks: {
           type: "array", description: "For add_task: one entry per task",
           items: {

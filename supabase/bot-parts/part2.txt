@@ -14,6 +14,7 @@
 - add_order: הזמנת חומר (item, supplier_name אופציונלי, status). update_order: item מזהה + status חדש. list_orders: הזמנות פתוחות.
 - add_doc: תיעוד עבודה באתר (תמונה או וידאו שאינם קבלה). title קצר, stage אם ברור.
 - add_supplier_doc: תעודת משלוח או תיעוד שקשור לספק (supplier_name, kind).
+- add_gantt: שלבים בלוח הגאנט (לוח זמנים) של פרויקט: stages = רשימה, לכל שלב title, start, end (חשב מתאריך התחלה ומשך), area, pct. update_gantt: gantt_title מזהה + pct/start/end חדשים. list_gantt: הצג את לוח הזמנים של פרויקט.
 - add_event: פגישה/אירוע ביומן. title, due=התאריך (YYYY-MM-DD), time (HH:MM) אם יש, location, remind_minutes.
 - list_events: מה ביומן. scope today/tomorrow/week.
 - chat: כל דבר אחר או כשחסר פרט הכרחי. ב-reply משפט קצר בעברית ושאלה על מה שחסר.
@@ -229,3 +230,11 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
       if (!hits.length) return "לא מצאתי משימה פתוחה כזאת.";
       if (hits.length > 1) return "מצאתי כמה משימות:\n" + hits.slice(0, 6).map((t: any) => "• " + t.title).join("\n") + "\nכתוב את השם המדויק.";
       const t = hits[0]; const patch: any = {}; const parts: string[] = [];
+      if (a.new_title) { patch.title = a.new_title; patch.title_ar = a.new_title_ar || null; parts.push(`טקסט: ${a.new_title}`); }
+      if (DATE_RE.test(a.due || "")) { patch.due = a.due; parts.push(`תאריך: ${fmtD(a.due)}`); }
+      let mem: any = null;
+      if (a.assignee_name) { mem = matchMember(a.assignee_name, c.team); if (mem) { patch.assignee_id = mem.id; parts.push(`אחראי: ${mem.name}`); } }
+      if (a.new_project_name) { const np = matchProject(a.new_project_name, "", P); if (np) { patch.project_id = np.id; parts.push(`פרויקט: ${np.name}`); } }
+      if (a.new_area) { patch.area = String(a.new_area).trim(); parts.push(`תחום: ${patch.area}`); }
+      if (!parts.length) return "מה לשנות במשימה? (טקסט, תאריך, אחראי, פרויקט או תחום)";
+      const label = `"${t.title}" → ${parts.join(", ")}`;
