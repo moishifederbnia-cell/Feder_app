@@ -263,18 +263,28 @@ i.lg{width:10px;height:10px}
 .he{font-size:14px;color:var(--navy,#384E69);opacity:.85;font-weight:600;margin-top:2px}
 @media (prefers-color-scheme:dark){.he{color:var(--on-navy,#DDD6CB)}}
 .pdft{display:inline-flex;align-items:center;justify-content:center;background:#C0392B;color:#fff;font-weight:800;font-size:13px;border-radius:8px;padding:6px 10px;letter-spacing:.5px}.thumb .pdft,button.thumb .pdft{width:100%;height:100%;border-radius:10px}
-/* gantt */
-.gantt{overflow-x:auto;background:var(--surface);border-radius:14px;box-shadow:var(--shadow);margin-top:8px;-webkit-overflow-scrolling:touch}
-.ghead,.grow{display:flex;align-items:stretch;min-height:38px}
-.ghead{position:sticky;top:0;border-bottom:1px solid var(--field-line);min-height:26px}
-.grow{border-bottom:1px solid var(--field-line);cursor:pointer}
-.glab{position:sticky;left:0;z-index:3;width:112px;flex:0 0 112px;background:var(--surface);padding:4px 8px;font-size:13px;font-weight:700;line-height:1.2;display:flex;flex-direction:column;justify-content:center;border-right:1px solid var(--field-line);color:var(--ink);overflow:hidden}
-.gsub{font-size:10.5px;font-weight:400;color:var(--muted);white-space:nowrap}
-.gtrack{position:relative;flex:0 0 auto}
-.gmon{position:absolute;top:0;bottom:0;font-size:11px;font-weight:700;color:var(--muted);padding:5px 4px;border-left:1px solid var(--field-line);white-space:nowrap;overflow:hidden}
-.gwk{position:absolute;top:0;bottom:0;width:1px;background:var(--field-line);opacity:.5}
-.gbar{position:absolute;top:8px;height:22px;border-radius:7px;overflow:hidden;opacity:.9}
-.gbar i{position:absolute;left:0;top:0;bottom:0;background:rgba(0,0,0,.28);display:block}
-.gtoday{position:absolute;top:0;bottom:0;width:2px;background:#F7941D;z-index:2;pointer-events:none}
-.glegend{display:flex;flex-wrap:wrap;gap:6px 14px;margin:10px 4px;font-size:13px;color:var(--muted)}
-.glegend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-inline-end:5px;vertical-align:-1px}
+/* schedule table (weekly Gantt) */
+.pgrid.hacts{grid-template-columns:repeat(4,minmax(0,1fr));gap:14px 6px}
+.schwrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border-radius:10px;margin-top:8px}
+.sch{width:100%;min-width:760px;border-collapse:separate;border-spacing:0;font-size:14px;background:#fff;color:#1F2A38;border:1px solid #CFD5DC;border-radius:10px;overflow:hidden}
+.sch th{background:#384E69;color:#fff;font-weight:800;padding:11px 8px;text-align:center;border-inline-start:1px solid rgba(255,255,255,.25);font-size:14px}
+.sch td{padding:9px 8px;border-top:1px solid #D9DEE4;border-inline-start:1px solid #E3E7EC;vertical-align:middle;text-align:center;line-height:1.35}
+.sch th:first-child,.sch td:first-child{border-inline-start:0}
+.sch td.st2{text-align:start}.sch td.sx{text-align:center;color:#33404F}
+.sch .sn{width:56px}.sch td.sn{font-weight:800;color:#384E69;font-size:16px}
+.sch .sd{white-space:nowrap;width:110px;direction:ltr;unicode-bidi:plaintext}
+.sch .sp{width:120px}
+.sch td.sm.on{background:#DCEBF8;color:#1D4E89;font-weight:800}
+.sch td.sc.on{background:#FFF0C4;color:#8A5200;font-weight:800}
+.sch tr:nth-child(even) td:not(.on){background:#FAFAF7}
+.sch tr.sedit{cursor:pointer}.sch tr.sedit:active td:not(.on){background:#F1EEE6}
+.slate{font-size:11px;font-weight:800;color:#C0392B;direction:rtl}
+.sbar{position:relative;height:22px;border-radius:99px;background:#E7E1D5;overflow:hidden}
+.sbar i{position:absolute;inset-block:0;inset-inline-start:0;display:block}
+.sbar b{position:relative;display:block;line-height:22px;font-size:12px;color:#1F2A38;text-shadow:0 0 3px #fff,0 0 3px #fff}
+.sch-title{background:#EDEFF2;color:#384E69;font-weight:800;font-size:22px;text-align:center;padding:14px 10px;border-radius:8px;margin:14px 0 12px}
+.sch-foot{margin-top:10px;font-size:13px;color:#566272}
+.rep.sched .rhead{justify-content:space-between}
+@page land{size:A4 landscape;margin:10mm}
+@media print{.rep.sched{page:land}.rep.sched .schwrap{overflow:visible}.rep.sched .sch{min-width:0;font-size:13px}.sch tr{break-inside:avoid}}
+.rep.sched .rlogo{width:84px;height:84px;border-radius:14px}

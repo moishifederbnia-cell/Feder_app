@@ -303,11 +303,12 @@ var F={
   {k:'projectId',l:'פרויקט',t:'project',req:1},{k:'item',l:'מה להזמין',t:'text',req:1},
   {k:'supplierId',l:'ספק',t:'supplier'},{k:'status',l:'מצב',t:'select',o:['לא הוזמן','הוזמן','הגיע'],d:'לא הוזמן'},
   {k:'note',l:'הערה',t:'text'}]},
- gantt:{title:'שלב בלוח גאנט',col:'gantt_items',fields:[
-  {k:'projectId',l:'פרויקט',t:'project',req:1},{k:'title',l:'שם השלב / העבודה',t:'text',req:1},
-  {k:'start_date',l:'התחלה',t:'date',req:1,d:'today'},{k:'end_date',l:'סיום',t:'date',req:1,d:'today'},
-  {k:'area',l:'תחום (קובע צבע)',t:'select',o:areaList,add:1,d:'כללי'},
-  {k:'pct',l:'התקדמות (%)',t:'select',o:['0','25','50','75','100'],d:'0'},{k:'notes',l:'הערות',t:'textarea'}]},
+ gantt:{title:'שבוע בלוח הזמנים',col:'gantt_items',fields:[
+  {k:'projectId',l:'פרויקט',t:'project',req:1},{k:'start_date',l:'מתאריך',t:'date',req:1,d:'today'},{k:'end_date',l:'עד תאריך',t:'date',req:1,d:'today'},
+  {k:'title',l:'התקדמות צפויה (מה מתבצע בתקופה הזו)',t:'textarea',req:1},
+  {k:'pct',l:'הושלם (%)',t:'select',o:['0','10','20','25','30','40','50','60','70','75','80','90','100'],d:'0'},
+  {k:'color',l:'צבע ההתקדמות',t:'select',o:['אוטומטי (לפי אחוז)','ירוק','כתום','כחול','אדום','סגול','אפור'],d:'אוטומטי (לפי אחוז)'},
+  {k:'milestone',l:'אבן דרך (לא חובה)',t:'text'},{k:'notes',l:'הערות',t:'text'},{k:'client_task',l:'משימות ללקוח / אדריכלית',t:'text'}]},
  event:{title:'אירוע ביומן',col:'events',fields:[
   {k:'title',l:'כותרת',t:'text',req:1},{k:'date',l:'תאריך',t:'date',req:1,d:'today'},
   {k:'startTime',l:'שעת התחלה (אפשר להשאיר ריק ליום שלם)',t:'time'},{k:'endTime',l:'שעת סיום',t:'time'},
@@ -406,7 +407,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 46</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 47</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -551,40 +552,43 @@ function projSuppliersHtml(p){
   h+='<div style="text-align:center;margin:22px 0 4px"><button class="link" data-act="rmpsup" data-id="'+esc(s.id)+'">הסר ספק מהפרויקט</button></div>';
   return h;
 }
-var GCOL={'ריצוף':'#3E8E6A','חשמל':'#F7941D','אינסטלציה':'#6B87A8','טיח':'#A68A64','איטום':'#7A5C99','צבע':'#C0584B','כללי':'#384E69','בנייה':'#8A6B4F','הריסה':'#8C8C8C'};
-function gcol(a){if(GCOL[a])return GCOL[a];var pal=['#2F8F9D','#B5651D','#5B7DB1','#9C4F96','#6A994E','#D1495B'],h=0;String(a||'').split('').forEach(function(ch){h=(h*31+ch.charCodeAt(0))%997;});return pal[h%pal.length];}
+var SCOL={'ירוק':'#3E8E6A','כתום':'#F7941D','כחול':'#3B73B9','אדום':'#C0392B','סגול':'#7A5C99','אפור':'#8C8C8C'};
+function gColor(g){var pc=Number(g.pct)||0;if(SCOL[g.color])return SCOL[g.color];return pc>=100?SCOL['ירוק']:pc>0?SCOL['כתום']:SCOL['אפור'];}
 function gsh(d){var p=String(d).split('-');return +p[2]+'/'+ +p[1];}
-function gDays(a,b){return Math.round((pd(b)-pd(a))/86400000);}
-function gAdd(d,n){var x=pd(d);x.setDate(x.getDate()+n);return ymd(x);}
-function ganttHtml(p){
-  var its=S.gantt_items.filter(function(g){return g.projectId===p.id&&g.start_date&&g.end_date;}).sort(function(a,b){return String(a.start_date).localeCompare(String(b.start_date))||String(a.end_date).localeCompare(String(b.end_date));});
-  var h='<div class="sec" style="margin-top:12px"><h2>לוח גאנט</h2>'+addBtn('gantt','שלב חדש',p.id)+'</div>';
-  if(!its.length)return h+emptyBox('עוד אין שלבים בלוח הגאנט. לחץ "שלב חדש" והגדר שם, תאריך התחלה וסיום.');
-  var td=todayStr(),mn=its[0].start_date,mx=its[0].end_date;
-  its.forEach(function(g){if(g.start_date<mn)mn=g.start_date;if(g.end_date>mx)mx=g.end_date;});
-  if(td<mn)mn=td;if(td>mx)mx=td;
-  mn=gAdd(mn,-3);mx=gAdd(mx,5);
-  var days=gDays(mn,mx)+1,dw=days>180?7:days>90?11:16,W=days*dw,LW=112;
-  // month header
-  var mh='',cur=pd(mn),first=true;
-  while(ymd(cur)<=mx){
-    var ms=ymd(cur),me=ymd(new Date(cur.getFullYear(),cur.getMonth()+1,0));if(me>mx)me=mx;
-    var left=gDays(mn,ms)*dw,w=(gDays(ms,me)+1)*dw;
-    mh+='<div class="gmon" style="left:'+left+'px;width:'+w+'px">'+esc(cur.toLocaleDateString('he-IL',{month:'long',year:'2-digit'}))+'</div>';
-    cur=new Date(cur.getFullYear(),cur.getMonth()+1,1);
-  }
-  // week ticks (sundays)
-  var wk='';for(var i=0;i<days;i++){var dd=pd(gAdd(mn,i));if(dd.getDay()===0)wk+='<i class="gwk" style="left:'+(i*dw)+'px"></i>';}
-  var tx=gDays(mn,td)*dw+dw/2;
-  var rows=its.map(function(g){
-    var l=gDays(mn,g.start_date)*dw,w=Math.max(dw,(gDays(g.start_date,g.end_date)+1)*dw),pc=Math.max(0,Math.min(100,Number(g.pct)||0)),c=gcol(g.area);
-    var late=g.end_date<td&&pc<100;
-    return '<div class="grow" data-act="edit" data-e="gantt" data-id="'+esc(g.id)+'" role="button" tabindex="0"><div class="glab" dir="rtl">'+esc(g.title)+'<span class="gsub">'+gsh(g.start_date)+' – '+gsh(g.end_date)+(pc?' · '+pc+'%':'')+(late?' · באיחור':'')+'</span></div>'+
-      '<div class="gtrack" style="width:'+W+'px">'+wk+'<div class="gbar" style="left:'+l+'px;width:'+w+'px;background:'+c+(late?';outline:2px solid #C0392B':'')+'"><i style="width:'+pc+'%"></i></div></div></div>';
+function gItems(p){return S.gantt_items.filter(function(g){return g.projectId===p.id&&g.start_date&&g.end_date;}).sort(function(a,b){return String(a.start_date).localeCompare(String(b.start_date))||String(a.end_date).localeCompare(String(b.end_date));});}
+function schedTable(p,edit){
+  var its=gItems(p);
+  var rows=its.map(function(g,i){
+    var pc=Math.max(0,Math.min(100,Number(g.pct)||0)),c=gColor(g);
+    var late=g.end_date<todayStr()&&pc<100;
+    return '<tr'+(edit?' class="sedit" data-act="edit" data-e="gantt" data-id="'+esc(g.id)+'" role="button" tabindex="0"':'')+'>'+
+     '<td class="sn">'+(i+1)+'</td>'+
+     '<td class="sd">'+esc(gsh(g.start_date))+' - '+esc(gsh(g.end_date))+(late?'<div class="slate">באיחור</div>':'')+'</td>'+
+     '<td class="st2">'+esc(g.title||'')+'</td>'+
+     '<td class="sp"><div class="sbar"><i style="width:'+pc+'%;background:'+c+'"></i><b>'+pc+'%</b></div></td>'+
+     '<td class="sm'+(g.milestone?' on':'')+'">'+esc(g.milestone||'')+'</td>'+
+     '<td class="sx">'+esc(g.notes||'')+'</td>'+
+     '<td class="sc'+(g.client_task?' on':'')+'">'+esc(g.client_task||'')+'</td></tr>';
   }).join('');
-  h+='<div class="gantt" id="gantt" dir="ltr" data-today="'+Math.round(tx)+'"><div style="width:'+(W+LW)+'px;position:relative"><div class="ghead"><div class="glab"></div><div class="gtrack" style="width:'+W+'px;height:26px">'+mh+'</div></div>'+rows+'<div class="gtoday" style="left:'+(LW+tx)+'px"></div></div></div>';
-  var areas={};its.forEach(function(g){areas[g.area||'כללי']=1;});
-  h+='<div class="glegend">'+Object.keys(areas).map(function(a){return '<span><i style="background:'+gcol(a)+'"></i>'+esc(a)+'</span>';}).join('')+'<span><i style="background:#F7941D;width:3px;height:14px"></i>היום</span></div>';
+  return '<div class="schwrap"><table class="sch"><thead><tr><th class="sn">שבוע מספר</th><th class="sd">תאריכים</th><th>התקדמות צפויה</th><th class="sp">הושלם</th><th>אבני דרך</th><th>הערות</th><th>משימות ללקוח / אדריכלית</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+}
+function schedOverall(p){var its=gItems(p);if(!its.length)return 0;return Math.round(its.reduce(function(t,g){return t+(Math.max(0,Math.min(100,Number(g.pct)||0)));},0)/its.length);}
+function ganttHtml(p){
+  var its=gItems(p),ov=schedOverall(p);
+  var h='<div class="sec" style="margin-top:12px"><h2>לוח זמנים</h2>'+addBtn('gantt','שבוע חדש',p.id)+'</div>';
+  if(!its.length)return h+emptyBox('עוד אין לוח זמנים. לחץ "שבוע חדש" והגדר תקופה, מה מתוכנן ואחוז התקדמות.');
+  h+='<div class="card" style="margin-bottom:10px"><div class="row1"><span class="muted">התקדמות כללית</span><b>'+ov+'%</b></div><div class="bar" role="img" aria-label="'+ov+' אחוז"><i style="width:'+ov+'%"></i></div></div>';
+  h+=schedTable(p,true);
+  h+='<button class="btn btn-navy" style="width:100%;margin-top:12px" data-act="schprint">'+ico('plan',20)+' הדפס / שמור כ-PDF</button>';
+  return h;
+}
+function schedReport(p){
+  if(!p)return '<div class="rnote">בחר פרויקט כדי להפיק לוח זמנים.</div>';
+  var its=gItems(p);
+  var h='<div class="rhead"><img class="rlogo" src="icons/logo.png" alt=""><div><div class="rbrand">פדר בניה · לבנות בראש שקט</div></div></div><!--INTRO-->';
+  h+='<div class="sch-title">לוח זמנים פרויקט '+esc(p.name)+(p.address?' - '+esc(p.address):'')+'</div>';
+  h+=its.length?schedTable(p,false):'<div class="rnote">עוד אין שבועות בלוח הזמנים של הפרויקט.</div>';
+  if(its.length)h+='<div class="sch-foot">התקדמות כללית: <b>'+schedOverall(p)+'%</b> · עודכן: '+esc(new Date().toLocaleDateString('he-IL',{day:'numeric',month:'long',year:'numeric'}))+'</div>';
   return h;
 }
 function vProject(){
@@ -770,14 +774,14 @@ function vReport(){
   var type=UI.reportType||'field';
   var h=bandHtml('דוחות',p?p.name:'כל הפרויקטים',{back:p?'חזרה לפרויקט':'חזרה'});
   h+='<main class="wrap" style="'+PULL+'"><div class="card noprint"><div class="fld"><label for="rproj" class="sr">פרויקט</label><select id="rproj" data-sel="reportProject"><option value="">כל הפרויקטים</option>'+sortedProjects().map(function(q){return '<option value="'+esc(q.id)+'"'+(UI.reportProject===q.id?' selected':'')+'>'+esc(q.name)+'</option>';}).join('')+'</select></div><div class="filters" style="padding-top:0">'+
-    '<button class="fchip" data-act="rtype" data-v="field" aria-pressed="'+(type==='field')+'">מצב באתר</button><button class="fchip" data-act="rtype" data-v="tasks" aria-pressed="'+(type==='tasks')+'">משימות לפי אדם</button><button class="fchip" data-act="rtype" data-v="fin" aria-pressed="'+(type==='fin')+'">דוח קבלות והוצאות</button></div>'+
+    '<button class="fchip" data-act="rtype" data-v="field" aria-pressed="'+(type==='field')+'">מצב באתר</button><button class="fchip" data-act="rtype" data-v="tasks" aria-pressed="'+(type==='tasks')+'">משימות לפי אדם</button><button class="fchip" data-act="rtype" data-v="sched" aria-pressed="'+(type==='sched')+'">לוח זמנים</button><button class="fchip" data-act="rtype" data-v="fin" aria-pressed="'+(type==='fin')+'">דוח קבלות והוצאות</button></div>'+
     (type==='tasks'?'<div class="fld"><label for="rper">אדם</label><select id="rper" data-sel="reportPerson"><option value="">כולם</option>'+S.team_members.map(function(m){return '<option value="'+esc(m.id)+'"'+(UI.reportPerson===m.id?' selected':'')+'>'+esc(m.name)+'</option>';}).join('')+'<option value="none"'+(UI.reportPerson==='none'?' selected':'')+'>ללא אחראי</option></select></div><label class="chk"><input type="checkbox" data-ro="1"'+(UI.repOpen!==false?' checked':'')+'> רק משימות פתוחות</label>':'')+
     ((type==='field'&&p)||type==='tasks'?'<label class="chk"><input type="checkbox" data-rp="1"'+(UI.repPhotos!==false?' checked':'')+'> לכלול תמונות מהשטח</label>':'')+
     '<div class="fld" style="margin-top:6px"><label for="rn_intro">הערות כלליות (בראש הדוח)</label><textarea id="rn_intro" data-rn="intro" placeholder="למשל: סיכום תקופה, עדכון ללקוח...">'+esc(noteGet('intro'))+'</textarea></div>'+
     '<div class="fld"><label for="rn_outro">סיכום והמלצות (בסוף הדוח)</label><textarea id="rn_outro" data-rn="outro" placeholder="הצעדים הבאים, הערות...">'+esc(noteGet('outro'))+'</textarea></div>'+
     '<button class="btn btn-accent" style="width:100%;margin-top:6px" data-act="print">שמור כ-PDF / שתף</button>'+
     '<div class="muted" style="margin-top:8px">בחלון שייפתח בחר <b>שמירה כ-PDF</b> (Save as PDF) ואז שמור או שתף ללקוח.</div></div>'+
-    '<div class="rep">'+noteWrap(type==='tasks'?repPerson(p):type==='fin'?(p?repFin(p):repAllFin()):(p?repField(p):repAllField()))+'</div></main>';
+    '<div class="rep'+(type==='sched'?' sched':'')+'">'+noteWrap(type==='sched'?schedReport(p):type==='tasks'?repPerson(p):type==='fin'?(p?repFin(p):repAllFin()):(p?repField(p):repAllField()))+'</div></main>';
   return h;
 }
 
@@ -893,7 +897,7 @@ function vWorker(){
     h+='<div style="text-align:center;margin:18px 0 6px"><button class="link" data-act="wshowdone">'+(WK.showDone?'إخفاء المنجزة':'عرض المهام المنجزة ('+done.length+')')+'</button></div>';
     if(WK.showDone)h+='<div class="stack">'+done.map(row).join('')+'</div>';
   }
-  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v46</div></main>';
+  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v47</div></main>';
 }
 function vAccountant(){
   var list=S.expenses.filter(expFilt);
@@ -964,7 +968,6 @@ function draw(){
   if(AUTH.role==='worker'){app.innerHTML=vWorker();return;}
   var ready=TABLES.every(function(c){return loaded[c];});
   if(!ready){app.innerHTML='<div class="loading">טוען…</div>';return;}
-  var gEl=$('#gantt'),gsl=gEl?gEl.scrollLeft:null;
   var y=window.scrollY,typed=($('#msgin')||{}).value,ae=document.activeElement,aid=ae&&ae.id&&$('#app').contains(ae)?ae.id:'',sqv=($('#sq')||{}).value;
   if(AUTH.role==='client'){app.innerHTML=vClient();}
   else if(AUTH.role==='accountant'){app.innerHTML=vAccountant();}
@@ -974,7 +977,6 @@ function draw(){
     else if(v==='suppliers')h=vSuppliers();else if(v==='expenses')h=vExpenses();else if(v==='calendar')h=vCalendar();else if(v==='report')h=vReport();else if(v==='users')h=vUsers();else h=vHome();
     app.innerHTML=h+navHtml();
   }
-  var g2=$('#gantt');if(g2){var gi=UI.gScroll!=null?UI.gScroll:(gsl!=null?gsl:Math.max(0,(+g2.getAttribute('data-today')||0)-g2.clientWidth/2+112));g2.scrollLeft=gi;if(UI.gScroll==null)UI.gScroll=gi;}
   if(isStaff()){gEnsure();gSyncBot();}
   navSync();
   var at=$('.tabs .tab[aria-pressed="true"]');if(at&&at.scrollIntoView){try{at.scrollIntoView({block:'nearest',inline:'center'});}catch(e){}}
@@ -1045,6 +1047,7 @@ function openForm(e,id,defs){
     var v=doc?doc[f.k]:(defs[f.k]!=null?defs[f.k]:(f.d==='today'?todayStr():(f.d||'')));
     if(!doc&&f.t==='project'&&f.req&&!v&&S.projects.length===1)v=S.projects[0].id;
     if(v==null)v='';
+    if(f.k==='pct')v=String(v);
     html+=fieldHtml(f,v);
   });
   html+='<datalist id="dl_suppliers">'+S.suppliers.map(function(s){return '<option value="'+esc(s.name)+'">';}).join('')+'</datalist>';
@@ -1113,7 +1116,7 @@ async function submitForm(ev){
     data[f.k]=v;
   }
   if(form.e==='expense'&&data.pay==='לא צוין')data.pay=null;
-  if(form.e==='gantt'){if(data.end_date<data.start_date){ferr('תאריך הסיום לפני ההתחלה.');return;}data.pct=parseInt(data.pct,10)||0;}
+  if(form.e==='gantt'){if(data.end_date<data.start_date){ferr('תאריך הסיום לפני ההתחלה.');return;}data.pct=parseInt(data.pct,10)||0;if(data.color&&data.color.indexOf('אוטומטי')===0)data.color=null;}
   var taskRemind=null,taskId=null,evId=null,trId=null,trTable=null;
   if(form.e==='task'){
     taskRemind=data.remind;delete data.remind;
@@ -1329,9 +1332,10 @@ document.addEventListener('click',function(ev){
     });
   }
   else if(a==='reportall'){UI.reportProject='';UI.view='report';window.scrollTo(0,0);render();}
+  else if(a==='schprint'){UI.reportProject=UI.projectId;UI.reportType='sched';UI.view='report';window.scrollTo(0,0);render();}
   else if(a==='report'){UI.reportProject=UI.projectId;UI.view='report';window.scrollTo(0,0);render();}
   else if(a==='rtype'){UI.reportType=el.getAttribute('data-v');render();}
-  else if(a==='print'){var ot=document.title,pp=UI.reportProject?byId('projects',UI.reportProject):null;document.title='פדר בניה - '+((UI.reportType==='fin')?'דוח הוצאות':'דוח מצב')+' - '+(pp?pp.name:'כל הפרויקטים');window.print();setTimeout(function(){document.title=ot;},1500);}
+  else if(a==='print'){var ot=document.title,pp=UI.reportProject?byId('projects',UI.reportProject):null;document.title='פדר בניה - '+((UI.reportType==='fin')?'דוח הוצאות':(UI.reportType==='sched')?'לוח זמנים':'דוח מצב')+' - '+(pp?pp.name:'כל הפרויקטים');window.print();setTimeout(function(){document.title=ot;},1500);}
   else if(a==='renamefield'){
     var oldf=UI.supField,nv=prompt('שם חדש לתחום "'+oldf+'":',oldf);
     if(nv&&nv.trim()&&nv.trim()!==oldf){nv=nv.trim();sb.from('suppliers').update({field:nv}).eq('field',oldf).then(function(){UI.supField=nv;loadTable('suppliers');});}
@@ -1395,7 +1399,6 @@ document.addEventListener('change',function(ev){
     (t.checked?sb.from('client_projects').insert({user_id:pr[0],project_id:pr[1]}):sb.from('client_projects').delete().eq('user_id',pr[0]).eq('project_id',pr[1])).then(function(){loadTable('client_projects');});
   }else if(t.getAttribute&&t.getAttribute('data-sel')){UI[t.getAttribute('data-sel')]=t.value;render();}
 });
-document.addEventListener('scroll',function(ev){if(ev.target&&ev.target.id==='gantt')UI.gScroll=ev.target.scrollLeft;},true);
 document.addEventListener('input',function(ev){
   if(ev.target.getAttribute&&ev.target.getAttribute('data-rn')){
     var part=ev.target.getAttribute('data-rn'),v=ev.target.value;lsSet(noteKey(part),v);
