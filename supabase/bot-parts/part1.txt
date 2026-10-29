@@ -195,7 +195,7 @@ const STAFF_ACTIONS = [
   "find_supplier", "add_supplier", "link_supplier",
   "add_order", "update_order", "list_orders",
   "add_doc", "add_supplier_doc",
-  "add_event", "list_events", "add_gantt", "update_gantt", "list_gantt", "chat",
+  "add_event", "list_events", "add_gantt", "update_gantt", "delete_gantt", "list_gantt", "chat",
 ];
 const WORKER_ACTIONS = ["list_tasks", "complete_task", "reopen_task", "add_doc", "chat"];
 
@@ -210,19 +210,36 @@ function actTool(actions: string[]) {
         project_name: { type: "string", description: "Project name exactly as in the list, or empty" },
         general: { type: "boolean", description: "add_expense: true for a general expense not tied to any project (fuel, tools, office...)" },
         stages: {
-          type: "array", description: "For add_gantt: one entry per stage of the project schedule (Gantt)",
+          type: "array", description: "For add_gantt: one entry per week/period row of the project schedule table",
           items: { type: "object", properties: {
-            title: { type: "string", description: "Stage name in Hebrew" },
-            start: { type: "string", description: "YYYY-MM-DD start date" },
+            title: { type: "string", description: "'התקדמות צפויה': what is planned in this period, Hebrew" },
+            start: { type: "string", description: "YYYY-MM-DD start date (omit if after_last)" },
             end: { type: "string", description: "YYYY-MM-DD end date (compute from a stated duration)" },
-            area: { type: "string", description: "Trade/area: כללי, ריצוף, חשמל, אינסטלציה, טיח, איטום, צבע, בנייה, הריסה or another" },
-            pct: { type: "integer", description: "Progress 0-100, default 0" },
-          }, required: ["title", "start", "end"] },
+            after_last: { type: "boolean", description: "true = start the day after the last existing row of the project (then use days)" },
+            days: { type: "integer", description: "with after_last: length in days (default 6)" },
+            pct: { type: "integer", description: "Completed percent 0-100, default 0" },
+            color: { type: "string", description: "ירוק / כתום / כחול / אדום / סגול / אפור, or empty for automatic by percent" },
+            milestone: { type: "string", description: "'אבן דרך' text, e.g. ספרינקלרים (יום רביעי 28/10)" },
+            notes: { type: "string", description: "'הערות' text" },
+            client_task: { type: "string", description: "'משימות ללקוח / אדריכלית' text" },
+          }, required: ["title"] },
         },
-        gantt_title: { type: "string", description: "update_gantt: identifying words of the existing stage" },
-        pct: { type: "integer", description: "update_gantt: new progress percent 0-100" },
-        start: { type: "string", description: "update_gantt: new start date YYYY-MM-DD" },
-        end: { type: "string", description: "update_gantt: new end date YYYY-MM-DD" },
+        gantt_updates: {
+          type: "array", description: "For update_gantt / delete_gantt: one entry per schedule row to change. Identify the row by week (the row number as shown in the table), or date (any date inside the row), or title words",
+          items: { type: "object", properties: {
+            week: { type: "integer", description: "row number (שבוע מספר) in the table" },
+            date: { type: "string", description: "YYYY-MM-DD inside the row's period" },
+            title: { type: "string", description: "identifying words of the row's planned work" },
+            pct: { type: "integer", description: "new completed percent 0-100" },
+            start: { type: "string", description: "new start YYYY-MM-DD" },
+            end: { type: "string", description: "new end YYYY-MM-DD" },
+            new_title: { type: "string", description: "new planned-work text" },
+            color: { type: "string", description: "new color: ירוק / כתום / כחול / אדום / סגול / אפור / אוטומטי" },
+            milestone: { type: "string", description: "new milestone text; '-' to clear" },
+            notes: { type: "string", description: "new notes text; '-' to clear" },
+            client_task: { type: "string", description: "new client/architect task text; '-' to clear" },
+          } },
+        },
         tasks: {
           type: "array", description: "For add_task: one entry per task",
           items: {

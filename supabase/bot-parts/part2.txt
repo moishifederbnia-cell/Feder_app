@@ -58,7 +58,7 @@ ${common}`;
 - add_order: הזמנת חומר (item, supplier_name אופציונלי, status). update_order: item מזהה + status חדש. list_orders: הזמנות פתוחות.
 - add_doc: תיעוד עבודה באתר (תמונה או וידאו שאינם קבלה). title קצר, stage אם ברור.
 - add_supplier_doc: תעודת משלוח או תיעוד שקשור לספק (supplier_name, kind).
-- add_gantt: שלבים בלוח הגאנט (לוח זמנים) של פרויקט: stages = רשימה, לכל שלב title, start, end (חשב מתאריך התחלה ומשך), area, pct. update_gantt: gantt_title מזהה + pct/start/end חדשים. list_gantt: הצג את לוח הזמנים של פרויקט.
+- לוח הגאנט (לוח זמנים שבועי של פרויקט, טבלה עם: שבוע מספר, תאריכים, התקדמות צפויה, הושלם באחוזים וצבע, אבני דרך, הערות, משימות ללקוח/אדריכלית). add_gantt: שורה לכל שבוע/תקופה ב-stages (title=התקדמות צפויה, start, end או after_last+days, pct, color, milestone, notes, client_task). update_gantt: gantt_updates, לכל שורה זיהוי לפי week (מספר השבוע בטבלה) או date או title, ובנוסף כל שדה לשינוי (pct, start, end, new_title, color, milestone, notes, client_task; '-' מנקה שדה). אפשר כמה שינויים בהודעה אחת. delete_gantt: מחיקת שורה (gantt_updates עם זיהוי). list_gantt: הצג את הלוח. כל "זז/נדחה/הושלם/הוסף אבן דרך/משימה ללקוח" בהקשר של לוח זמנים הוא update_gantt.
 - add_event: פגישה/אירוע ביומן. title, due=התאריך (YYYY-MM-DD), time (HH:MM) אם יש, location, remind_minutes.
 - list_events: מה ביומן. scope today/tomorrow/week.
 - chat: כל דבר אחר או כשחסר פרט הכרחי. ב-reply משפט קצר בעברית ושאלה על מה שחסר.
@@ -117,6 +117,10 @@ async function takePending(from: string): Promise<any | null> {
 const YES = /^(כן|אישור|אשר|בטח|סבבה|yes|ok|okay|نعم|اي|أيوه)\s*[.!]?$/i;
 const NO = /^(לא|בטל|ביטול|עזוב|no|cancel|لا)\s*[.!]?$/i;
 
+const GANTT_COLORS = ["ירוק", "כתום", "כחול", "אדום", "סגול", "אפור"];
+const ganttColor = (c: any) => { const v = String(c || "").trim(); return GANTT_COLORS.includes(v) ? v : null; };
+const strOrNull = (v: any) => { const t = String(v == null ? "" : v).trim(); return t && t !== "-" && t !== "אין" ? t : null; };
+
 async function execPending(p: any, c: Ctx): Promise<string> {
   if (p.kind === "delete_task") {
     const { error } = await db.from("tasks").delete().eq("id", p.id);
@@ -127,6 +131,10 @@ async function execPending(p: any, c: Ctx): Promise<string> {
     if (error) return "לא הצלחתי לעדכן.";
     if (p.patch.assignee_id) await notifyAssignee(p.patch.assignee_id, p.title_for_push || p.label, p.title_ar_for_push || null, p.project_name, c);
     return `עודכן ✓ ${p.label}`;
+  }
+  if (p.kind === "delete_gantt") {
+    const { error } = await db.from("gantt_items").delete().in("id", p.ids);
+    return error ? "לא הצלחתי למחוק." : `נמחק ✓ ${p.label}`;
   }
   if (p.kind === "delete_expense") {
     const { error } = await db.from("expenses").delete().eq("id", p.id);
@@ -186,3 +194,14 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
     if (rm >= 0) {
       const when = new Date(Date.parse(startIso) - rm * 60000);
       if (when.getTime() > Date.now()) {
+        const ids = Array.from(new Set([...(await bossIds()), ...extraUsers.filter(Boolean)]));
+        if (ids.length) await db.from("reminders").insert(ids.map((u: string) => ({ user_id: u, ref: "task:" + taskId + ":" + u.slice(0, 6), title, body: "בשעה " + time, remind_at: when.toISOString() })));
+        return label + " · תזכורת " + (rm ? rm + " דק' לפני" : "בזמן");
+      }
+    }
+    return label;
+  };
+
+  switch (a.action) {
+    // ----- tasks -----
+    case "add_task": {

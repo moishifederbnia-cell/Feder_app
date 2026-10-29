@@ -1,14 +1,3 @@
-        const ids = Array.from(new Set([...(await bossIds()), ...extraUsers.filter(Boolean)]));
-        if (ids.length) await db.from("reminders").insert(ids.map((u: string) => ({ user_id: u, ref: "task:" + taskId + ":" + u.slice(0, 6), title, body: "בשעה " + time, remind_at: when.toISOString() })));
-        return label + " · תזכורת " + (rm ? rm + " דק' לפני" : "בזמן");
-      }
-    }
-    return label;
-  };
-
-  switch (a.action) {
-    // ----- tasks -----
-    case "add_task": {
       const items: any[] = Array.isArray(a.tasks) && a.tasks.length ? a.tasks : (a.title ? [{ title: a.title, due: a.due, assignee: a.assignee_name }] : []);
       if (!items.length) return "מה המשימה?";
       if (!proj && !items.some((x: any) => x.project_name)) return needProj;
@@ -181,3 +170,33 @@
       if (P.some((p: any) => norm(p.name) === norm(name))) return `פרויקט "${name}" כבר קיים.`;
       const pid = crypto.randomUUID();
       const { error } = await db.from("projects").insert({ id: pid, name, address: a.address || null, client_name: a.client_name || null, status: "בהתחלה" });
+      if (error) return "לא הצלחתי ליצור את הפרויקט.";
+      await translateRows("projects", [{ id: pid, name, address: a.address || null }]);
+      return `נשמר ✓ פרויקט חדש: ${name}`;
+    }
+    case "set_project_status": {
+      if (!proj) return needProj;
+      if (a.status === "סיום") a.status = "הסתיים";
+      if (!["בהתחלה", "בביצוע", "בפינישים", "הסתיים"].includes(a.status)) return "איזה סטטוס? בהתחלה / בביצוע / בפינישים / הסתיים";
+      const { error } = await db.from("projects").update({ status: a.status }).eq("id", proj.id);
+      return error ? "לא הצלחתי לעדכן." : `נשמר ✓ ${proj.name}: ${a.status}`;
+    }
+    // ----- suppliers -----
+    case "find_supplier": {
+      const { data } = await db.from("suppliers").select("id,name,field,phone,contacts");
+      const k = norm(a.supplier_name || a.vendor || a.title);
+      const hits = (data || []).filter((s: any) => k && (norm(s.name).includes(k) || k.includes(norm(s.name)) || norm(s.field).includes(k))).slice(0, 5);
+      if (!hits.length) return "לא מצאתי ספק כזה.";
+      return hits.map((s: any) => `${s.name}${s.field ? " (" + s.field + ")" : ""}\n${s.phone || "אין טלפון"}` + ((s.contacts || []).length ? "\n" + s.contacts.map((x: any) => `${x.name || ""}${x.role ? " " + x.role : ""}: ${x.phone || ""}`).join("\n") : "")).join("\n\n");
+    }
+    case "add_supplier": {
+      const name = String(a.supplier_name || "").trim();
+      if (!name) return "מה שם הספק?";
+      let sup: any = await supplierByName(name);
+      let created = false;
+      if (sup) {
+        const patch: any = {};
+        if (a.supplier_field) patch.field = a.supplier_field;
+        if (a.supplier_phone) patch.phone = a.supplier_phone;
+        if (Object.keys(patch).length) await db.from("suppliers").update(patch).eq("id", sup.id);
+      } else {

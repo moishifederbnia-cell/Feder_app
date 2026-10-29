@@ -1,3 +1,31 @@
+  return L2.find((s: any) => norm(s.name) === k) || L2.find((s: any) => norm(s.name).includes(k) || k.includes(norm(s.name))) || null;
+}
+
+function helpText(c: Ctx) {
+  if (c.role === "worker") return "أنا مساعد فيدر للبناء. يمكنك:\n• \"مهامي\" لعرض مهامك\n• \"أنهيت مهمة الخرسانة\"\n• إرسال صورة أو فيديو مع اسم المشروع كتوثيق";
+  return `אני הבוט של פדר בניה. אפשר לכתוב חופשי, למשל:
+• משימה בנוף: להזמין בטון מחר, ואבו יאסר יפנה את הפסולת
+• איזה משימות יש לי היום / מה באיחור / מה פתוח אצל אמיתי
+• סגור את משימת הבטון / מחק משימה / תשייך את הבטון לאבי
+• 350 חשמל בנימין הנוף אשראי (או שלח תמונת קבלה)
+• כמה הוצאנו בנוף החודש / הוצאות לבנימין
+• תיעוד: תמונה או וידאו עם "הנוף חשמל"
+• תעודת משלוח: תמונה עם "תעודת משלוח בנימין הנוף"
+• הזמנה בנוף: ברזל / הברזל הגיע
+• לוח זמנים בנוף: שבוע 1 ריצוף 25-30.10, אבן דרך ספרינקלרים / שבוע 2 הושלם 80% / תוסיף שבוע אחרי האחרון / מה לוח הזמנים בנוף
+• טלפון של בנימין / ספק חדש...
+• פגישה מחר ב-10 בנוף עם הלקוח / מה ביומן
+מחיקה ועריכה תמיד מחכות לאישור "כן".`;
+}
+
+// ---------- rule fallback (no AI key / AI failed) ----------
+async function handleRules(c: Ctx, text: string, mediaPath: string | null): Promise<string> {
+  if (c.role === "worker") return "المساعد غير متاح الآن، حاول لاحقاً.";
+  const { data: pr } = await db.from("projects").select("id,name");
+  const P = pr || [];
+  const proj = matchProject("", text, P);
+  const lead = text.trim().split(/\s+/)[0];
+  if (lead === "משימה" && proj) {
     const title = text.replace(/^\s*משימה/, "").replace(new RegExp(proj.name, "i"), "").replace(/[:：]/g, " ").replace(/\s+/g, " ").trim();
     if (!title) return "חסר תיאור למשימה.";
     const { error } = await db.from("tasks").insert({ project_id: proj.id, title, status: "לביצוע" });

@@ -1,33 +1,3 @@
-      if (error) return "לא הצלחתי ליצור את הפרויקט.";
-      await translateRows("projects", [{ id: pid, name, address: a.address || null }]);
-      return `נשמר ✓ פרויקט חדש: ${name}`;
-    }
-    case "set_project_status": {
-      if (!proj) return needProj;
-      if (a.status === "סיום") a.status = "הסתיים";
-      if (!["בהתחלה", "בביצוע", "בפינישים", "הסתיים"].includes(a.status)) return "איזה סטטוס? בהתחלה / בביצוע / בפינישים / הסתיים";
-      const { error } = await db.from("projects").update({ status: a.status }).eq("id", proj.id);
-      return error ? "לא הצלחתי לעדכן." : `נשמר ✓ ${proj.name}: ${a.status}`;
-    }
-    // ----- suppliers -----
-    case "find_supplier": {
-      const { data } = await db.from("suppliers").select("id,name,field,phone,contacts");
-      const k = norm(a.supplier_name || a.vendor || a.title);
-      const hits = (data || []).filter((s: any) => k && (norm(s.name).includes(k) || k.includes(norm(s.name)) || norm(s.field).includes(k))).slice(0, 5);
-      if (!hits.length) return "לא מצאתי ספק כזה.";
-      return hits.map((s: any) => `${s.name}${s.field ? " (" + s.field + ")" : ""}\n${s.phone || "אין טלפון"}` + ((s.contacts || []).length ? "\n" + s.contacts.map((x: any) => `${x.name || ""}${x.role ? " " + x.role : ""}: ${x.phone || ""}`).join("\n") : "")).join("\n\n");
-    }
-    case "add_supplier": {
-      const name = String(a.supplier_name || "").trim();
-      if (!name) return "מה שם הספק?";
-      let sup: any = await supplierByName(name);
-      let created = false;
-      if (sup) {
-        const patch: any = {};
-        if (a.supplier_field) patch.field = a.supplier_field;
-        if (a.supplier_phone) patch.phone = a.supplier_phone;
-        if (Object.keys(patch).length) await db.from("suppliers").update(patch).eq("id", sup.id);
-      } else {
         const ins = await db.from("suppliers").insert({ name, field: a.supplier_field || null, phone: a.supplier_phone || null }).select("id,name").maybeSingle();
         if (ins.error) return "לא הצלחתי לשמור את הספק.";
         sup = ins.data || (await supplierByName(name));
@@ -134,36 +104,93 @@
     case "add_gantt": {
       if (!proj) return needProj;
       const st: any[] = Array.isArray(a.stages) ? a.stages : [];
-      const rows = st.filter((x) => String(x.title || "").trim() && DATE_RE.test(x.start || "") && DATE_RE.test(x.end || "")).map((x) => ({
-        project_id: proj.id, title: String(x.title).trim(), start_date: x.start, end_date: x.end < x.start ? x.start : x.end,
-        area: String(x.area || "").trim() || (["ריצוף", "חשמל", "אינסטלציה", "טיח", "איטום", "צבע", "בנייה", "הריסה"].find((k) => String(x.title).includes(k)) || "כללי"), pct: Math.max(0, Math.min(100, Math.round(Number(x.pct) || 0))),
-      }));
-      if (!rows.length) return "לא הבנתי את השלבים. כתוב שם שלב ותאריכי התחלה וסיום, למשל: ריצוף מה-1.11 עד 20.11.";
-      const { error } = await db.from("gantt_items").insert(rows);
-      if (error) return "לא הצלחתי לשמור בלוח הגאנט. ודא שהרצת את ה-SQL של הגאנט.";
-      return `נשמר ✓ בלוח הגאנט של "${proj.name}":\n` + rows.map((r) => `• ${r.title}: ${fmtD(r.start_date)} – ${fmtD(r.end_date)}`).join("\n");
+      const { data: ex } = await db.from("gantt_items").select("end_date").eq("project_id", proj.id).order("end_date", { ascending: false }).limit(1);
+      let lastEnd: string | null = ex && ex[0] ? ex[0].end_date : null;
+      const rows: any[] = [];
+      for (const x of st) {
+        const title = String(x.title || "").trim(); if (!title) continue;
+        let start = DATE_RE.test(x.start || "") ? x.start : "";
+        let end = DATE_RE.test(x.end || "") ? x.end : "";
+        if (!start && x.after_last) { start = lastEnd ? addDays(lastEnd, 1) : ymd(il()); end = end || addDays(start, Math.max(0, (Number(x.days) || 6) - 1)); }
+        if (!start || !end) continue;
+        if (end < start) end = start;
+        lastEnd = end;
+        rows.push({
+          project_id: proj.id, title, start_date: start, end_date: end,
+          pct: Math.max(0, Math.min(100, Math.round(Number(x.pct) || 0))),
+          color: ganttColor(x.color), milestone: strOrNull(x.milestone), notes: strOrNull(x.notes), client_task: strOrNull(x.client_task),
+        });
+      }
+      if (!rows.length) return "לא הבנתי את השורות. כתוב מה מתוכנן ותאריכי התחלה וסיום, למשל: שבוע ריצוף מה-1.11 עד 6.11.";
+      let { error } = await db.from("gantt_items").insert(rows);
+      if (error) {
+        // columns for milestone / client task / color may not exist yet: retry without them
+        const slim = rows.map((r) => ({ project_id: r.project_id, title: r.title, start_date: r.start_date, end_date: r.end_date, pct: r.pct }));
+        const r2 = await db.from("gantt_items").insert(slim); error = r2.error;
+        if (!error) return `נשמר ✓ בלוח הזמנים של "${proj.name}" (בלי אבני דרך/צבע/הערות: הרץ את ה-SQL של לוח הזמנים):\n` + rows.map((r) => `• ${fmtD(r.start_date)} – ${fmtD(r.end_date)}: ${r.title}`).join("\n");
+        return "לא הצלחתי לשמור בלוח הזמנים. ודא שהרצת את ה-SQL של הגאנט.";
+      }
+      return `נשמר ✓ בלוח הזמנים של "${proj.name}":\n` + rows.map((r) => `• ${fmtD(r.start_date)} – ${fmtD(r.end_date)}: ${r.title}${r.pct ? " · " + r.pct + "%" : ""}${r.milestone ? " · אבן דרך: " + r.milestone : ""}${r.client_task ? " · ללקוח: " + r.client_task : ""}`).join("\n");
     }
-    case "update_gantt": {
-      let q = db.from("gantt_items").select("id,title,project_id,start_date,end_date,pct");
-      if (proj && a.project_name) q = q.eq("project_id", proj.id);
-      const { data } = await q.limit(80);
-      const key = norm(a.gantt_title || a.title || "");
-      const hits = (data || []).filter((g: any) => key && (norm(g.title).includes(key) || key.includes(norm(g.title))));
-      if (!hits.length) return "לא מצאתי שלב כזה בלוח הגאנט.";
-      if (hits.length > 1) return "מצאתי כמה שלבים:\n" + hits.slice(0, 6).map((g: any) => `• ${g.title} (${pNames[g.project_id] || ""})`).join("\n") + "\nכתוב שם מדויק או את הפרויקט.";
-      const g = hits[0]; const patch: any = {}; const parts: string[] = [];
-      if (a.pct !== undefined && a.pct !== null && isFinite(Number(a.pct))) { patch.pct = Math.max(0, Math.min(100, Math.round(Number(a.pct)))); parts.push(`התקדמות ${patch.pct}%`); }
-      if (DATE_RE.test(a.start || "")) { patch.start_date = a.start; parts.push(`התחלה ${fmtD(a.start)}`); }
-      if (DATE_RE.test(a.end || "")) { patch.end_date = a.end; parts.push(`סיום ${fmtD(a.end)}`); }
-      if (!parts.length) return "מה לעדכן בשלב? (אחוז התקדמות, תאריך התחלה או סיום)";
-      const { error } = await db.from("gantt_items").update(patch).eq("id", g.id);
-      return error ? "לא הצלחתי לעדכן." : `עודכן ✓ "${g.title}" (${pNames[g.project_id] || ""}): ${parts.join(", ")}`;
+    case "update_gantt":
+    case "delete_gantt": {
+      const ups: any[] = Array.isArray(a.gantt_updates) ? a.gantt_updates : [];
+      if (!ups.length) return "איזה שבוע בלוח הזמנים? כתוב מספר שבוע או תאריך, ומה לעדכן.";
+      // load rows of the project (numbering = order by start date, like the app)
+      const loadRows = async (pid: string) => (await db.from("gantt_items").select("*").eq("project_id", pid).order("start_date").order("end_date")).data || [];
+      let list: any[] = [];
+      let pr = proj;
+      if (!pr) {
+        const { data: all } = await db.from("gantt_items").select("project_id").limit(500);
+        const ids = Array.from(new Set((all || []).map((g: any) => g.project_id)));
+        if (ids.length === 1) pr = P.find((p: any) => p.id === ids[0]) || null;
+      }
+      if (!pr) return needProj;
+      list = await loadRows(pr.id);
+      if (!list.length) return `אין שורות בלוח הזמנים של "${pr.name}".`;
+      const out: string[] = [];
+      const dels: any[] = [];
+      for (const u of ups) {
+        let g: any = null;
+        if (Number(u.week) >= 1) g = list[Number(u.week) - 1] || null;
+        else if (DATE_RE.test(u.date || "")) g = list.find((x: any) => x.start_date <= u.date && u.date <= x.end_date) || null;
+        else if (u.title) {
+          const key = norm(u.title);
+          const hits = list.filter((x: any) => norm(x.title).includes(key) || key.includes(norm(x.title)));
+          if (hits.length > 1) { out.push(`• "${u.title}": מצאתי כמה שורות, כתוב מספר שבוע (${hits.slice(0, 5).map((h: any) => list.indexOf(h) + 1).join(", ")})`); continue; }
+          g = hits[0] || null;
+        }
+        if (!g) { out.push(`• לא מצאתי שורה ${u.week ? "שבוע " + u.week : u.date ? "בתאריך " + fmtD(u.date) : "\"" + (u.title || "") + "\""}`); continue; }
+        const wk = list.indexOf(g) + 1;
+        if (a.action === "delete_gantt") { dels.push({ id: g.id, wk, title: g.title }); continue; }
+        const patch: any = {}; const parts: string[] = [];
+        if (u.pct !== undefined && u.pct !== null && isFinite(Number(u.pct))) { patch.pct = Math.max(0, Math.min(100, Math.round(Number(u.pct)))); parts.push(`הושלם ${patch.pct}%`); }
+        if (DATE_RE.test(u.start || "")) { patch.start_date = u.start; parts.push(`התחלה ${fmtD(u.start)}`); }
+        if (DATE_RE.test(u.end || "")) { patch.end_date = u.end; parts.push(`סיום ${fmtD(u.end)}`); }
+        if (patch.start_date && !patch.end_date && g.end_date < patch.start_date) patch.end_date = patch.start_date;
+        if (patch.end_date && !patch.start_date && patch.end_date < g.start_date) patch.start_date = patch.end_date;
+        if (u.new_title) { patch.title = String(u.new_title).trim(); parts.push(`תוכן: ${patch.title}`); }
+        if (u.color) { patch.color = ganttColor(u.color); parts.push(`צבע ${u.color}`); }
+        if (u.milestone !== undefined && u.milestone !== null && String(u.milestone).trim()) { patch.milestone = strOrNull(u.milestone); parts.push(patch.milestone ? `אבן דרך: ${patch.milestone}` : "אבן דרך נוקתה"); }
+        if (u.notes !== undefined && u.notes !== null && String(u.notes).trim()) { patch.notes = strOrNull(u.notes); parts.push(patch.notes ? `הערה: ${patch.notes}` : "הערה נוקתה"); }
+        if (u.client_task !== undefined && u.client_task !== null && String(u.client_task).trim()) { patch.client_task = strOrNull(u.client_task); parts.push(patch.client_task ? `ללקוח: ${patch.client_task}` : "משימה ללקוח נוקתה"); }
+        if (!parts.length) { out.push(`• שבוע ${wk}: מה לעדכן?`); continue; }
+        let { error } = await db.from("gantt_items").update(patch).eq("id", g.id);
+        if (error) { const slim: any = {}; for (const k of ["pct", "start_date", "end_date", "title", "notes"]) if (k in patch) slim[k] = patch[k]; if (Object.keys(slim).length) error = (await db.from("gantt_items").update(slim).eq("id", g.id)).error; else error = { message: "cols" } as any; }
+        out.push(error ? `• שבוע ${wk}: לא הצלחתי לעדכן (ודא שהרצת את ה-SQL של לוח הזמנים)` : `• שבוע ${wk} (${fmtD(patch.start_date || g.start_date)} – ${fmtD(patch.end_date || g.end_date)}): ${parts.join(", ")}`);
+      }
+      if (dels.length) {
+        await savePending(c.from, { kind: "delete_gantt", ids: dels.map((d) => d.id), label: dels.map((d) => `שבוע ${d.wk} (${d.title})`).join(", ") + ` ב"${pr.name}"` });
+        return `למחוק ${dels.map((d) => `שבוע ${d.wk} (${d.title})`).join(", ")} מלוח הזמנים של "${pr.name}"?\nכתוב "כן" לאישור.` + (out.length ? "\n" + out.join("\n") : "");
+      }
+      return `עודכן ✓ לוח הזמנים של "${pr.name}":\n` + out.join("\n");
     }
     case "list_gantt": {
       if (!proj) return needProj;
-      const { data } = await db.from("gantt_items").select("title,start_date,end_date,pct,area").eq("project_id", proj.id).order("start_date");
-      if (!data || !data.length) return `אין שלבים בלוח הגאנט של "${proj.name}".`;
-      return `לוח הזמנים של "${proj.name}":\n` + data.map((g: any) => `• ${g.title}: ${fmtD(g.start_date)} – ${fmtD(g.end_date)}${g.pct ? " · " + g.pct + "%" : ""}`).join("\n");
+      const { data } = await db.from("gantt_items").select("*").eq("project_id", proj.id).order("start_date").order("end_date");
+      if (!data || !data.length) return `אין שורות בלוח הזמנים של "${proj.name}".`;
+      const ov = Math.round(data.reduce((t: number, g: any) => t + (Number(g.pct) || 0), 0) / data.length);
+      return `לוח הזמנים של "${proj.name}" (התקדמות כללית ${ov}%):\n` + data.map((g: any, i: number) => `${i + 1}. ${fmtD(g.start_date)} – ${fmtD(g.end_date)}: ${g.title}${g.pct ? " · " + g.pct + "%" : ""}${g.milestone ? " · אבן דרך: " + g.milestone : ""}${g.client_task ? " · ללקוח: " + g.client_task : ""}`).join("\n");
     }
     case "list_events": {
       const today = ymd(il());
@@ -187,31 +214,3 @@ async function supplierByName(name: string) {
   if (!k) return null;
   const { data } = await db.from("suppliers").select("id,name");
   const L2 = data || [];
-  return L2.find((s: any) => norm(s.name) === k) || L2.find((s: any) => norm(s.name).includes(k) || k.includes(norm(s.name))) || null;
-}
-
-function helpText(c: Ctx) {
-  if (c.role === "worker") return "أنا مساعد فيدر للبناء. يمكنك:\n• \"مهامي\" لعرض مهامك\n• \"أنهيت مهمة الخرسانة\"\n• إرسال صورة أو فيديو مع اسم المشروع كتوثيق";
-  return `אני הבוט של פדר בניה. אפשר לכתוב חופשי, למשל:
-• משימה בנוף: להזמין בטון מחר, ואבו יאסר יפנה את הפסולת
-• איזה משימות יש לי היום / מה באיחור / מה פתוח אצל אמיתי
-• סגור את משימת הבטון / מחק משימה / תשייך את הבטון לאבי
-• 350 חשמל בנימין הנוף אשראי (או שלח תמונת קבלה)
-• כמה הוצאנו בנוף החודש / הוצאות לבנימין
-• תיעוד: תמונה או וידאו עם "הנוף חשמל"
-• תעודת משלוח: תמונה עם "תעודת משלוח בנימין הנוף"
-• הזמנה בנוף: ברזל / הברזל הגיע
-• גאנט בנוף: ריצוף מ-1.11 למשך 3 שבועות / ריצוף בנוף 50%
-• טלפון של בנימין / ספק חדש...
-• פגישה מחר ב-10 בנוף עם הלקוח / מה ביומן
-מחיקה ועריכה תמיד מחכות לאישור "כן".`;
-}
-
-// ---------- rule fallback (no AI key / AI failed) ----------
-async function handleRules(c: Ctx, text: string, mediaPath: string | null): Promise<string> {
-  if (c.role === "worker") return "المساعد غير متاح الآن، حاول لاحقاً.";
-  const { data: pr } = await db.from("projects").select("id,name");
-  const P = pr || [];
-  const proj = matchProject("", text, P);
-  const lead = text.trim().split(/\s+/)[0];
-  if (lead === "משימה" && proj) {
