@@ -1,3 +1,99 @@
+        const ids = Array.from(new Set([...(await bossIds()), ...extraUsers.filter(Boolean)]));
+        if (ids.length) await db.from("reminders").insert(ids.map((u: string) => ({ user_id: u, ref: "task:" + taskId + ":" + u.slice(0, 6), title, body: "בשעה " + time, remind_at: when.toISOString() })));
+        return label + " · תזכורת " + (rm ? rm + " דק' לפני" : "בזמן");
+      }
+    }
+    return label;
+  };
+
+  switch (a.action) {
+    // ----- tasks -----
+    case "add_task": {
+      const items: any[] = Array.isArray(a.tasks) && a.tasks.length ? a.tasks : (a.title ? [{ title: a.title, due: a.due, assignee: a.assignee_name }] : []);
+      if (!items.length) return "מה המשימה?";
+      if (!proj && !items.some((x: any) => x.project_name)) return needProj;
+      const out: string[] = [];
+      const projNames = new Set<string>();
+      let first = true;
+      for (const it of items) {
+        const title = String(it.title || "").trim(); if (!title) continue;
+        const ip = it.project_name ? (matchProject(it.project_name, "", P) || proj) : proj;
+        if (!ip) { out.push("✗ " + title + " (לא ידוע לאיזה פרויקט)"); continue; }
+        const due = DATE_RE.test(it.due || "") ? it.due : null;
+        const mem = it.assignee ? matchMember(it.assignee, c.team) : null;
+        const row: any = { project_id: ip.id, title, title_ar: it.title_ar || null, due, status: (it.decision || a.decision) ? "ממתין להחלטה" : "לביצוע", assignee_id: mem ? mem.id : null };
+        const hasT = TIME_RE.test(it.time || "") && !!due;
+        const tid = crypto.randomUUID();
+        row.id = tid;
+        if (hasT) row.due_time = it.time.padStart(5, "0");
+        if (mediaPath && first) row.photo = mediaPath;
+        row.area = String(it.area || a.area || "").trim() || "כללי";
+        let ins = await db.from("tasks").insert(row);
+        if (ins.error && (hasT || row.photo || row.area)) { delete row.due_time; delete row.photo; delete row.area; ins = await db.from("tasks").insert(row); }
+        if (ins.error) { out.push("✗ " + title); continue; }
+        first = false;
+        projNames.add(ip.name);
+        let evNote = "";
+        if (hasT) evNote = await mkTimed(title, due as string, it.time, ip.id, a.remind_minutes, !!it.meeting, [mem?.user_id || ""], tid);
+        out.push(`• ${title}${mem ? " ← " + mem.name : ""}${due ? " (עד " + fmtD(due) + ")" : ""}${evNote}${projNames.size > 1 || (it.project_name && proj && ip.id !== proj.id) ? " [" + ip.name + "]" : ""}`);
+        if (mem) await notifyAssignee(mem.id, title, it.title_ar || null, ip.name, c);
+      }
+      const head = projNames.size === 1 ? `נשמר ✓ ב"${Array.from(projNames)[0]}" (${out.filter((x) => x.startsWith("•")).length} משימות):` : `נשמר ✓ (${out.filter((x) => x.startsWith("•")).length} משימות):`;
+      return head + "\n" + out.join("\n");
+    }
+    case "list_tasks": {
+      const today = ymd(il());
+      const scope: string = a.scope || "open";
+      let q = db.from("tasks").select("title,title_ar,due,status,project_id,assignee_id,done_at");
+      if (scope === "done") q = q.eq("status", "הושלם").order("done_at", { ascending: false, nullsFirst: false });
+      else if (scope === "decision") q = q.eq("status", "ממתין להחלטה").order("due", { ascending: true, nullsFirst: false });
+      else {
+        q = q.neq("status", "הושלם").neq("status", "ממתין להחלטה").order("due", { ascending: true, nullsFirst: false });
+        if (scope === "today") q = q.lte("due", today);
+        else if (scope === "tomorrow") q = q.eq("due", addDays(today, 1));
+        else if (scope === "week") q = q.lte("due", addDays(today, 7));
+        else if (scope === "overdue") q = q.lt("due", today);
+      }
+      if (proj && a.project_name) q = q.eq("project_id", proj.id);
+      let who: any = null;
+      if (a.mine && c.member) who = c.member;
+      else if (a.assignee_name) who = matchMember(a.assignee_name, c.team);
+      if (who) q = q.eq("assignee_id", who.id);
+      const { data } = await q.limit(25);
+      if (!data?.length) return L(c, "אין משימות" + (scope === "done" ? " שהושלמו" : "") + " כאלה 👍", "لا توجد مهام 👍");
+      const SC: Record<string, string> = { today: "להיום ובאיחור", tomorrow: "למחר", week: "לשבוע הקרוב", overdue: "באיחור", open: "פתוחות", done: "שהושלמו" };
+      const head = L(c, "משימות " + (SC[scope] || "") + (who ? " – " + who.name : "") + ":", "المهام" + (who ? " – " + mName(who, c) : "") + ":");
+      const mById: Record<string, any> = {}; c.team.forEach((m) => (mById[m.id] = m));
+      return head + "\n" + data.map((t: any) => {
+        const late = t.due && t.due < today && t.status !== "הושלם";
+        return `• ${tTitle(t, c)}${!(proj && a.project_name) ? " (" + (pNames[t.project_id] || "") + ")" : ""}${!who && t.assignee_id && mById[t.assignee_id] ? " · " + mName(mById[t.assignee_id], c) : ""}${t.due ? " · " + (late ? "⚠️ " : "") + L(c, "עד ", "حتى ") + fmtD(t.due) : ""}`;
+      }).join("\n");
+    }
+    case "complete_task":
+    case "reopen_task": {
+      const reopen = a.action === "reopen_task";
+      const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, reopen);
+      if (!hits.length) return L(c, "לא מצאתי משימה כזאת.", "لم أجد هذه المهمة.");
+      if (hits.length > 1) return L(c, "מצאתי כמה משימות:\n", "وجدت عدة مهام:\n") + hits.slice(0, 6).map((t: any) => "• " + tTitle(t, c)).join("\n") + L(c, "\nכתוב את השם המדויק של אחת מהן.", "\nاكتب الاسم الدقيق لإحداها.");
+      const t = hits[0];
+      const { error } = await db.from("tasks").update(reopen ? { status: "לביצוע", done_at: null } : { status: "הושלם", done_at: new Date().toISOString() }).eq("id", t.id);
+      if (error) return L(c, "לא הצלחתי לעדכן.", "تعذّر التحديث.");
+      if (c.role === "worker" && !reopen) await pushTo(await bossIds(), `${c.name || "פועל"} סגר משימה`, `${t.title} · ${pNames[t.project_id] || ""}`);
+      return reopen ? L(c, `נפתחה מחדש ✓ "${t.title}"`, `أُعيد فتحها ✓ "${tTitle(t, c)}"`) : L(c, `נשמר ✓ "${t.title}" סומנה כבוצעה.`, `تم ✓ "${tTitle(t, c)}"`);
+    }
+    case "edit_task": {
+      const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, false);
+      if (!hits.length) return "לא מצאתי משימה פתוחה כזאת.";
+      if (hits.length > 1) return "מצאתי כמה משימות:\n" + hits.slice(0, 6).map((t: any) => "• " + t.title).join("\n") + "\nכתוב את השם המדויק.";
+      const t = hits[0]; const patch: any = {}; const parts: string[] = [];
+      if (a.new_title) { patch.title = a.new_title; patch.title_ar = a.new_title_ar || null; parts.push(`טקסט: ${a.new_title}`); }
+      if (DATE_RE.test(a.due || "")) { patch.due = a.due; parts.push(`תאריך: ${fmtD(a.due)}`); }
+      let mem: any = null;
+      if (a.assignee_name) { mem = matchMember(a.assignee_name, c.team); if (mem) { patch.assignee_id = mem.id; parts.push(`אחראי: ${mem.name}`); } }
+      if (a.new_project_name) { const np = matchProject(a.new_project_name, "", P); if (np) { patch.project_id = np.id; parts.push(`פרויקט: ${np.name}`); } }
+      if (a.new_area) { patch.area = String(a.new_area).trim(); parts.push(`תחום: ${patch.area}`); }
+      if (!parts.length) return "מה לשנות במשימה? (טקסט, תאריך, אחראי, פרויקט או תחום)";
+      const label = `"${t.title}" → ${parts.join(", ")}`;
       await savePending(c.from, { kind: "edit_task", id: t.id, patch, label, title_for_push: a.new_title || t.title, title_ar_for_push: a.new_title_ar || t.title_ar || null, project_name: pNames[t.project_id] });
       return `לשנות ${label}?\nכתוב "כן" לאישור.`;
     }
@@ -85,159 +181,3 @@
       if (P.some((p: any) => norm(p.name) === norm(name))) return `פרויקט "${name}" כבר קיים.`;
       const pid = crypto.randomUUID();
       const { error } = await db.from("projects").insert({ id: pid, name, address: a.address || null, client_name: a.client_name || null, status: "בהתחלה" });
-      if (error) return "לא הצלחתי ליצור את הפרויקט.";
-      await translateRows("projects", [{ id: pid, name, address: a.address || null }]);
-      return `נשמר ✓ פרויקט חדש: ${name}`;
-    }
-    case "set_project_status": {
-      if (!proj) return needProj;
-      if (a.status === "סיום") a.status = "הסתיים";
-      if (!["בהתחלה", "בביצוע", "בפינישים", "הסתיים"].includes(a.status)) return "איזה סטטוס? בהתחלה / בביצוע / בפינישים / הסתיים";
-      const { error } = await db.from("projects").update({ status: a.status }).eq("id", proj.id);
-      return error ? "לא הצלחתי לעדכן." : `נשמר ✓ ${proj.name}: ${a.status}`;
-    }
-    // ----- suppliers -----
-    case "find_supplier": {
-      const { data } = await db.from("suppliers").select("id,name,field,phone,contacts");
-      const k = norm(a.supplier_name || a.vendor || a.title);
-      const hits = (data || []).filter((s: any) => k && (norm(s.name).includes(k) || k.includes(norm(s.name)) || norm(s.field).includes(k))).slice(0, 5);
-      if (!hits.length) return "לא מצאתי ספק כזה.";
-      return hits.map((s: any) => `${s.name}${s.field ? " (" + s.field + ")" : ""}\n${s.phone || "אין טלפון"}` + ((s.contacts || []).length ? "\n" + s.contacts.map((x: any) => `${x.name || ""}${x.role ? " " + x.role : ""}: ${x.phone || ""}`).join("\n") : "")).join("\n\n");
-    }
-    case "add_supplier": {
-      const name = String(a.supplier_name || "").trim();
-      if (!name) return "מה שם הספק?";
-      let sup: any = await supplierByName(name);
-      let created = false;
-      if (sup) {
-        const patch: any = {};
-        if (a.supplier_field) patch.field = a.supplier_field;
-        if (a.supplier_phone) patch.phone = a.supplier_phone;
-        if (Object.keys(patch).length) await db.from("suppliers").update(patch).eq("id", sup.id);
-      } else {
-        const ins = await db.from("suppliers").insert({ name, field: a.supplier_field || null, phone: a.supplier_phone || null }).select("id,name").maybeSingle();
-        if (ins.error) return "לא הצלחתי לשמור את הספק.";
-        sup = ins.data || (await supplierByName(name));
-        if (!sup) return "לא הצלחתי לשמור את הספק.";
-        created = true;
-      }
-      let linked = "";
-      if (a.project_name && proj) {
-        const lk = await db.from("project_suppliers").upsert({ project_id: proj.id, supplier_id: sup.id }, { onConflict: "project_id,supplier_id" });
-        if (!lk.error) linked = ` · שויך ל"${proj.name}"`;
-      }
-      return `נשמר ✓ ${created ? "ספק חדש" : "ספק עודכן"}: ${name}${a.supplier_field ? " · " + a.supplier_field : ""}${a.supplier_phone ? " · " + a.supplier_phone : ""}${linked}`;
-    }
-    case "link_supplier": {
-      if (!proj) return needProj;
-      const s = await supplierByName(a.supplier_name);
-      if (!s) return "לא מצאתי את הספק. אפשר להוסיף אותו קודם.";
-      const { error } = await db.from("project_suppliers").upsert({ project_id: proj.id, supplier_id: s.id }, { onConflict: "project_id,supplier_id" });
-      return error ? "לא הצלחתי לשייך." : `נשמר ✓ ${s.name} שויך ל"${proj.name}".`;
-    }
-    // ----- orders -----
-    case "add_order": {
-      if (!proj) return needProj;
-      const item = String(a.item || a.title || "").trim();
-      if (!item) return "מה להזמין?";
-      const s = a.supplier_name ? await supplierByName(a.supplier_name) : null;
-      const status = ["לא הוזמן", "הוזמן", "הגיע"].includes(a.status) ? a.status : "לא הוזמן";
-      const { error } = await db.from("orders").insert({ project_id: proj.id, supplier_id: s ? s.id : null, item, status });
-      if (error) return "לא הצלחתי לשמור את ההזמנה.";
-      if (s) await db.from("project_suppliers").upsert({ project_id: proj.id, supplier_id: s.id }, { onConflict: "project_id,supplier_id" });
-      return `נשמר ✓ הזמנה ב"${proj.name}": ${item}${s ? " · " + s.name : ""} · ${status}`;
-    }
-    case "update_order": {
-      if (!["לא הוזמן", "הוזמן", "הגיע"].includes(a.status)) return "איזה מצב? לא הוזמן / הוזמן / הגיע";
-      let q = db.from("orders").select("id,item,project_id,status");
-      if (proj && a.project_name) q = q.eq("project_id", proj.id);
-      const { data } = await q.limit(200);
-      const k = norm(a.item || a.title);
-      const hits = (data || []).filter((o: any) => k && (norm(o.item).includes(k) || k.includes(norm(o.item))));
-      if (!hits.length) return "לא מצאתי הזמנה כזאת.";
-      if (hits.length > 1) return "מצאתי כמה הזמנות:\n" + hits.slice(0, 6).map((o: any) => `• ${o.item} (${pNames[o.project_id] || ""}) · ${o.status}`).join("\n") + "\nכתוב את השם המדויק.";
-      const { error } = await db.from("orders").update({ status: a.status }).eq("id", hits[0].id);
-      return error ? "לא הצלחתי לעדכן." : `נשמר ✓ ${hits[0].item}: ${a.status}`;
-    }
-    case "list_orders": {
-      let q = db.from("orders").select("item,status,project_id,supplier_id").neq("status", "הגיע");
-      if (proj && a.project_name) q = q.eq("project_id", proj.id);
-      const { data } = await q.limit(30);
-      if (!data?.length) return "אין הזמנות פתוחות.";
-      return "הזמנות פתוחות:\n" + data.map((o: any) => `• ${o.item} (${pNames[o.project_id] || ""}) · ${o.status}`).join("\n");
-    }
-    // ----- documentation -----
-    case "add_doc": {
-      if (!proj) return needProj;
-      if (!mediaPath) return L(c, "שלח תמונה או וידאו עם הכיתוב.", "أرسل صورة أو فيديو مع وصف.");
-      const stage = STAGES.includes(a.stage) ? a.stage : "אחר";
-      const title = String(a.title || "").trim() || stage;
-      const { error } = await db.from("docs").insert({ project_id: proj.id, title, stage, note: a.note || null, photo: mediaPath, date: ymd(il()) });
-      if (error) return L(c, "לא הצלחתי לשמור את התיעוד.", "تعذّر حفظ التوثيق.");
-      if (c.role === "worker") await pushTo(await bossIds(), `${c.name || "פועל"} שלח תיעוד`, `${title} · ${proj.name}`);
-      return L(c, `נשמר ✓ תיעוד ב"${proj.name}": ${title}${stage ? " · " + stage : ""}${isVideo ? " · וידאו" : ""}`, `تم الحفظ ✓ ${proj.name}: ${title}`);
-    }
-    case "add_supplier_doc": {
-      if (!proj) return needProj;
-      if (!mediaPath) return "שלח תמונה או וידאו של התעודה.";
-      const s = await supplierByName(a.supplier_name);
-      if (!s) return "לא זיהיתי את הספק. כתוב את שמו בכיתוב.";
-      const kind = a.kind === "תיעוד" ? "תיעוד" : "תעודת משלוח";
-      const { error } = await db.from("supplier_docs").insert({ project_id: proj.id, supplier_id: s.id, kind, title: a.title || null, note: a.note || null, photo: mediaPath, date: ymd(il()) });
-      if (error) return "לא הצלחתי לשמור.";
-      await db.from("project_suppliers").upsert({ project_id: proj.id, supplier_id: s.id }, { onConflict: "project_id,supplier_id" });
-      return `נשמר ✓ ${kind} של ${s.name} ב"${proj.name}"`;
-    }
-    // ----- calendar -----
-    case "add_event": {
-      const title = String(a.title || "").trim();
-      if (!title) return "מה האירוע?";
-      if (!DATE_RE.test(a.due || a.date || "")) return "באיזה תאריך?";
-      const date = DATE_RE.test(a.due || "") ? a.due : a.date;
-      const hasTime = TIME_RE.test(a.time || "");
-      const time = hasTime ? a.time.padStart(5, "0") : "";
-      const startIso = hasTime ? ilToUtc(date, time) : ilToUtc(date, "00:00");
-      let endIso: string | null = null;
-      if (hasTime) endIso = TIME_RE.test(a.end_time || "") ? ilToUtc(date, a.end_time.padStart(5, "0")) : new Date(Date.parse(startIso) + 3600000).toISOString();
-      const id = crypto.randomUUID();
-      const { error } = await db.from("events").insert({ id, title, start_at: startIso, end_at: endIso, all_day: !hasTime, project_id: proj && a.project_name ? proj.id : null, location: a.location || null, notes: a.note || null });
-      if (error) return "לא הצלחתי לשמור את האירוע.";
-      let remNote = "";
-      const rm = a.remind_minutes === undefined || a.remind_minutes === null ? 30 : Number(a.remind_minutes);
-      if (rm >= 0) {
-        const base = hasTime ? Date.parse(startIso) : Date.parse(ilToUtc(date, "08:00"));
-        const when = new Date(base - (hasTime ? rm : 0) * 60000);
-        if (when.getTime() > Date.now()) {
-          const ids = await bossIds();
-          if (ids.length) {
-            await db.from("reminders").insert(ids.map((u: string) => ({ user_id: u, ref: "ev:" + id + ":" + u.slice(0, 6), title, body: (hasTime ? "בשעה " + time : "כל היום") + (a.location ? " · " + a.location : ""), remind_at: when.toISOString() })));
-            remNote = hasTime ? ` · תזכורת ${rm ? rm + " דק' לפני" : "בזמן האירוע"}` : " · תזכורת בבוקר";
-          }
-        }
-      }
-      return `נשמר ✓ ביומן: ${title} · ${fmtD(date)}${hasTime ? " " + time : " (כל היום)"}${a.location ? " · " + a.location : ""}${remNote}\n(יעבור ליומן גוגל כשתפתח את האפליקציה)`;
-    }
-    // ----- gantt -----
-    case "add_gantt": {
-      if (!proj) return needProj;
-      const st: any[] = Array.isArray(a.stages) ? a.stages : [];
-      const rows = st.filter((x) => String(x.title || "").trim() && DATE_RE.test(x.start || "") && DATE_RE.test(x.end || "")).map((x) => ({
-        project_id: proj.id, title: String(x.title).trim(), start_date: x.start, end_date: x.end < x.start ? x.start : x.end,
-        area: String(x.area || "").trim() || (["ריצוף", "חשמל", "אינסטלציה", "טיח", "איטום", "צבע", "בנייה", "הריסה"].find((k) => String(x.title).includes(k)) || "כללי"), pct: Math.max(0, Math.min(100, Math.round(Number(x.pct) || 0))),
-      }));
-      if (!rows.length) return "לא הבנתי את השלבים. כתוב שם שלב ותאריכי התחלה וסיום, למשל: ריצוף מה-1.11 עד 20.11.";
-      const { error } = await db.from("gantt_items").insert(rows);
-      if (error) return "לא הצלחתי לשמור בלוח הגאנט. ודא שהרצת את ה-SQL של הגאנט.";
-      return `נשמר ✓ בלוח הגאנט של "${proj.name}":\n` + rows.map((r) => `• ${r.title}: ${fmtD(r.start_date)} – ${fmtD(r.end_date)}`).join("\n");
-    }
-    case "update_gantt": {
-      let q = db.from("gantt_items").select("id,title,project_id,start_date,end_date,pct");
-      if (proj && a.project_name) q = q.eq("project_id", proj.id);
-      const { data } = await q.limit(80);
-      const key = norm(a.gantt_title || a.title || "");
-      const hits = (data || []).filter((g: any) => key && (norm(g.title).includes(key) || key.includes(norm(g.title))));
-      if (!hits.length) return "לא מצאתי שלב כזה בלוח הגאנט.";
-      if (hits.length > 1) return "מצאתי כמה שלבים:\n" + hits.slice(0, 6).map((g: any) => `• ${g.title} (${pNames[g.project_id] || ""})`).join("\n") + "\nכתוב שם מדויק או את הפרויקט.";
-      const g = hits[0]; const patch: any = {}; const parts: string[] = [];
-      if (a.pct !== undefined && a.pct !== null && isFinite(Number(a.pct))) { patch.pct = Math.max(0, Math.min(100, Math.round(Number(a.pct)))); parts.push(`התקדמות ${patch.pct}%`); }
-      if (DATE_RE.test(a.start || "")) { patch.start_date = a.start; parts.push(`התחלה ${fmtD(a.start)}`); }

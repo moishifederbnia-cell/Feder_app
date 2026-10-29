@@ -1,3 +1,47 @@
+        mine: { type: "boolean", description: "list_tasks: the sender asks about their own tasks (שלי / لي)" },
+        scope: { type: "string", enum: ["today", "tomorrow", "week", "overdue", "open", "done", "decision"], description: "list_tasks/list_events scope" },
+        amount: { type: "number" }, new_amount: { type: "number" },
+        vendor: { type: "string", description: "Supplier/store name on an expense" },
+        new_vendor: { type: "string" },
+        pay: { type: "string", enum: ["מזומן", "אשראי", ""] },
+        date: { type: "string", description: "Date YYYY-MM-DD if stated/visible, else empty" },
+        note: { type: "string" },
+        stage: { type: "string", description: "Trade/area: חשמל, אינסטלציה, איטום, ריצוף, בנייה, הריסה, משימה, אחר" },
+        last: { type: "boolean", description: "The user means the latest/last one" },
+        supplier_name: { type: "string" }, supplier_field: { type: "string" }, supplier_phone: { type: "string" },
+        kind: { type: "string", enum: ["תעודת משלוח", "תיעוד"], description: "add_supplier_doc kind" },
+        item: { type: "string", description: "Order item (add_order) or words identifying an order (update_order)" },
+        status: { type: "string", description: "Order status (לא הוזמן/הוזמן/הגיע) or project status (בהתחלה/בביצוע/סיום)" },
+        time: { type: "string", description: "Event start HH:MM (24h) or empty for all-day" },
+        end_time: { type: "string" }, location: { type: "string" },
+        remind_minutes: { type: "number", description: "Minutes before the event to remind; -1 for none; default 30" },
+        group_by: { type: "string", enum: ["vendor", "pay", "none"], description: "expense_summary grouping" },
+        period: { type: "string", enum: ["week", "month", "all"], description: "expense_summary period" },
+        address: { type: "string" }, client_name: { type: "string" },
+        reply: { type: "string", description: "For action=chat: short answer or a question asking for the missing detail" },
+      },
+      required: ["action"],
+    },
+  };
+}
+
+function systemPrompt(c: Ctx, projects: any[]) {
+  const d = il();
+  const wd = ["ראשון", "שני", "שלישי", "רביעי", "חמישי", "שישי", "שבת"][d.getDay()];
+  const team = c.team.map((m) => m.name + (m.name_ar ? ` (${m.name_ar})` : "")).join(" | ");
+  const common = `היום: ${ymd(d)} (יום ${wd}), שעון ישראל. חשב תאריכים יחסיים ("מחר", "יום ראשון הבא", "בעוד שבוע") לפי היום.
+פרויקטים: ${projects.map((p) => p.name).join(" | ") || "(אין)"}.
+אנשי צוות: ${team || "(אין)"}.
+project_name חייב להיות אחד מהשמות ברשימה בדיוק, או ריק אם לא ברור. בחר פעולה אחת בלבד.
+מוצגות לפניך ההודעות האחרונות בשיחה (עד 10 דקות). אם המשתמש מתקן או משלים ('לא, התכוונתי...', 'זה לא לנוף', 'תשנה ל...', 'תוסיף שעה', 'ביטלתי'), התייחס להוראה הקודמת ופעל עליה: אם משהו כבר נשמר, השתמש ב-edit_task / edit_expense / delete_* עם title או vendor מזהים מההודעה הקודמת (project_name = הפרויקט הנוכחי של הפריט לזיהוי, new_project_name = הפרויקט החדש). אם ההוראה הקודמת לא בוצעה כי חסר פרט, השלם אותה כעת. אל תשחזר פעולה שכבר נשמרה.`;
+  if (c.role === "worker") {
+    return `אתה עוזר בוואטסאפ של חברת בנייה (פדר בניה) שמדבר עם פועל שטח בשם ${c.name || "הפועל"}. הוא כותב בערבית או בעברית.
+הוא מורשה רק: לראות משימות (list_tasks), לסגור משימה (complete_task) או לפתוח מחדש (reopen_task), לשלוח תיעוד של עבודה בתמונה או וידאו (add_doc), או לשאול שאלה כללית (chat).
+אסור לו לראות או לשנות כסף, הוצאות, ספקים או תקציבים. אם ביקש משהו כזה, action=chat עם reply בערבית: "هذا غير متاح لك".
+"مهامي"/"שלי" => mine=true. בתיעוד: כתוב title ו-note בעברית (תרגם מערבית), stage אם ברור.
+כשאתה כותב reply בערבית, השתמש בערבית פשוטה וברורה.
+${common}`;
+  }
   return `אתה עוזר של מנהל עבודה בחברת בנייה (פדר בניה). הוא כותב לך בעברית קצרה מהשטח, לפעמים עם תמונת קבלה או תיעוד.
 בחר את הפעולה והמלא פרטים:
 - add_task: משימה חדשה. אפשר הרבה משימות בהודעה אחת: אם כותבים רשימה (משימה אחת..., משימה שתיים..., 1. 2. 3., שורות נפרדות, או "משימות לפרויקט X: ..."), צור פריט נפרד ב-tasks לכל משימה, בלי להגביל את המספר. לכל פריט יכולים להיות assignee, due, time ו-project_name משלו (אם הרשימה כוללת כמה פרויקטים). אם כתוב "כל אלה ל-X" או "לאבו יאסר: ..." החל את האדם על כל המשימות שמתחתיו עד שמוזכר אדם אחר. אם נשלחה תמונה עם הכיתוב, היא תצורף למשימה הראשונה. לכל משימה אפשר area (תחום): כללי, ריצוף, חשמל, אינסטלציה, טיח, איטום, צבע, מוסטפה (עובד שעושה פינישים), או תחום אחר שנאמר; אם לא נאמר, כללי. לכל משימה: title בעברית, title_ar תרגום לערבית, due אם צוין, assignee אם שייך לאדם מהצוות ("תן לאבו יאסר...", "אמיתי ידאג ל..."), time=HH:MM רק אם צוינה שעה למשימה ("הספק מגיע מחר ב-10": due ו-time, תזכורת פוש חצי שעה לפני, בלי יומן). משימה בלי שעה: בלי time ובלי תזכורת. meeting=true רק אם המשתמש אמר פגישה/מפגש: אז היא נשמרת גם ביומן גוגל (due ו-time) עם תזכורת, decision=true אם זו משימה שממתינה להחלטה ("ממתין להחלטה", "צריך להחליט", "לחכות להחלטה").
@@ -142,99 +186,3 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
     if (rm >= 0) {
       const when = new Date(Date.parse(startIso) - rm * 60000);
       if (when.getTime() > Date.now()) {
-        const ids = Array.from(new Set([...(await bossIds()), ...extraUsers.filter(Boolean)]));
-        if (ids.length) await db.from("reminders").insert(ids.map((u: string) => ({ user_id: u, ref: "task:" + taskId + ":" + u.slice(0, 6), title, body: "בשעה " + time, remind_at: when.toISOString() })));
-        return label + " · תזכורת " + (rm ? rm + " דק' לפני" : "בזמן");
-      }
-    }
-    return label;
-  };
-
-  switch (a.action) {
-    // ----- tasks -----
-    case "add_task": {
-      const items: any[] = Array.isArray(a.tasks) && a.tasks.length ? a.tasks : (a.title ? [{ title: a.title, due: a.due, assignee: a.assignee_name }] : []);
-      if (!items.length) return "מה המשימה?";
-      if (!proj && !items.some((x: any) => x.project_name)) return needProj;
-      const out: string[] = [];
-      const projNames = new Set<string>();
-      let first = true;
-      for (const it of items) {
-        const title = String(it.title || "").trim(); if (!title) continue;
-        const ip = it.project_name ? (matchProject(it.project_name, "", P) || proj) : proj;
-        if (!ip) { out.push("✗ " + title + " (לא ידוע לאיזה פרויקט)"); continue; }
-        const due = DATE_RE.test(it.due || "") ? it.due : null;
-        const mem = it.assignee ? matchMember(it.assignee, c.team) : null;
-        const row: any = { project_id: ip.id, title, title_ar: it.title_ar || null, due, status: (it.decision || a.decision) ? "ממתין להחלטה" : "לביצוע", assignee_id: mem ? mem.id : null };
-        const hasT = TIME_RE.test(it.time || "") && !!due;
-        const tid = crypto.randomUUID();
-        row.id = tid;
-        if (hasT) row.due_time = it.time.padStart(5, "0");
-        if (mediaPath && first) row.photo = mediaPath;
-        row.area = String(it.area || a.area || "").trim() || "כללי";
-        let ins = await db.from("tasks").insert(row);
-        if (ins.error && (hasT || row.photo || row.area)) { delete row.due_time; delete row.photo; delete row.area; ins = await db.from("tasks").insert(row); }
-        if (ins.error) { out.push("✗ " + title); continue; }
-        first = false;
-        projNames.add(ip.name);
-        let evNote = "";
-        if (hasT) evNote = await mkTimed(title, due as string, it.time, ip.id, a.remind_minutes, !!it.meeting, [mem?.user_id || ""], tid);
-        out.push(`• ${title}${mem ? " ← " + mem.name : ""}${due ? " (עד " + fmtD(due) + ")" : ""}${evNote}${projNames.size > 1 || (it.project_name && proj && ip.id !== proj.id) ? " [" + ip.name + "]" : ""}`);
-        if (mem) await notifyAssignee(mem.id, title, it.title_ar || null, ip.name, c);
-      }
-      const head = projNames.size === 1 ? `נשמר ✓ ב"${Array.from(projNames)[0]}" (${out.filter((x) => x.startsWith("•")).length} משימות):` : `נשמר ✓ (${out.filter((x) => x.startsWith("•")).length} משימות):`;
-      return head + "\n" + out.join("\n");
-    }
-    case "list_tasks": {
-      const today = ymd(il());
-      const scope: string = a.scope || "open";
-      let q = db.from("tasks").select("title,title_ar,due,status,project_id,assignee_id,done_at");
-      if (scope === "done") q = q.eq("status", "הושלם").order("done_at", { ascending: false, nullsFirst: false });
-      else if (scope === "decision") q = q.eq("status", "ממתין להחלטה").order("due", { ascending: true, nullsFirst: false });
-      else {
-        q = q.neq("status", "הושלם").neq("status", "ממתין להחלטה").order("due", { ascending: true, nullsFirst: false });
-        if (scope === "today") q = q.lte("due", today);
-        else if (scope === "tomorrow") q = q.eq("due", addDays(today, 1));
-        else if (scope === "week") q = q.lte("due", addDays(today, 7));
-        else if (scope === "overdue") q = q.lt("due", today);
-      }
-      if (proj && a.project_name) q = q.eq("project_id", proj.id);
-      let who: any = null;
-      if (a.mine && c.member) who = c.member;
-      else if (a.assignee_name) who = matchMember(a.assignee_name, c.team);
-      if (who) q = q.eq("assignee_id", who.id);
-      const { data } = await q.limit(25);
-      if (!data?.length) return L(c, "אין משימות" + (scope === "done" ? " שהושלמו" : "") + " כאלה 👍", "لا توجد مهام 👍");
-      const SC: Record<string, string> = { today: "להיום ובאיחור", tomorrow: "למחר", week: "לשבוע הקרוב", overdue: "באיחור", open: "פתוחות", done: "שהושלמו" };
-      const head = L(c, "משימות " + (SC[scope] || "") + (who ? " – " + who.name : "") + ":", "المهام" + (who ? " – " + mName(who, c) : "") + ":");
-      const mById: Record<string, any> = {}; c.team.forEach((m) => (mById[m.id] = m));
-      return head + "\n" + data.map((t: any) => {
-        const late = t.due && t.due < today && t.status !== "הושלם";
-        return `• ${tTitle(t, c)}${!(proj && a.project_name) ? " (" + (pNames[t.project_id] || "") + ")" : ""}${!who && t.assignee_id && mById[t.assignee_id] ? " · " + mName(mById[t.assignee_id], c) : ""}${t.due ? " · " + (late ? "⚠️ " : "") + L(c, "עד ", "حتى ") + fmtD(t.due) : ""}`;
-      }).join("\n");
-    }
-    case "complete_task":
-    case "reopen_task": {
-      const reopen = a.action === "reopen_task";
-      const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, reopen);
-      if (!hits.length) return L(c, "לא מצאתי משימה כזאת.", "لم أجد هذه المهمة.");
-      if (hits.length > 1) return L(c, "מצאתי כמה משימות:\n", "وجدت عدة مهام:\n") + hits.slice(0, 6).map((t: any) => "• " + tTitle(t, c)).join("\n") + L(c, "\nכתוב את השם המדויק של אחת מהן.", "\nاكتب الاسم الدقيق لإحداها.");
-      const t = hits[0];
-      const { error } = await db.from("tasks").update(reopen ? { status: "לביצוע", done_at: null } : { status: "הושלם", done_at: new Date().toISOString() }).eq("id", t.id);
-      if (error) return L(c, "לא הצלחתי לעדכן.", "تعذّر التحديث.");
-      if (c.role === "worker" && !reopen) await pushTo(await bossIds(), `${c.name || "פועל"} סגר משימה`, `${t.title} · ${pNames[t.project_id] || ""}`);
-      return reopen ? L(c, `נפתחה מחדש ✓ "${t.title}"`, `أُعيد فتحها ✓ "${tTitle(t, c)}"`) : L(c, `נשמר ✓ "${t.title}" סומנה כבוצעה.`, `تم ✓ "${tTitle(t, c)}"`);
-    }
-    case "edit_task": {
-      const hits = await findTasks(a.title || "", proj && a.project_name ? proj : null, false);
-      if (!hits.length) return "לא מצאתי משימה פתוחה כזאת.";
-      if (hits.length > 1) return "מצאתי כמה משימות:\n" + hits.slice(0, 6).map((t: any) => "• " + t.title).join("\n") + "\nכתוב את השם המדויק.";
-      const t = hits[0]; const patch: any = {}; const parts: string[] = [];
-      if (a.new_title) { patch.title = a.new_title; patch.title_ar = a.new_title_ar || null; parts.push(`טקסט: ${a.new_title}`); }
-      if (DATE_RE.test(a.due || "")) { patch.due = a.due; parts.push(`תאריך: ${fmtD(a.due)}`); }
-      let mem: any = null;
-      if (a.assignee_name) { mem = matchMember(a.assignee_name, c.team); if (mem) { patch.assignee_id = mem.id; parts.push(`אחראי: ${mem.name}`); } }
-      if (a.new_project_name) { const np = matchProject(a.new_project_name, "", P); if (np) { patch.project_id = np.id; parts.push(`פרויקט: ${np.name}`); } }
-      if (a.new_area) { patch.area = String(a.new_area).trim(); parts.push(`תחום: ${patch.area}`); }
-      if (!parts.length) return "מה לשנות במשימה? (טקסט, תאריך, אחראי, פרויקט או תחום)";
-      const label = `"${t.title}" → ${parts.join(", ")}`;

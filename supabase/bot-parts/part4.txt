@@ -1,3 +1,159 @@
+      if (error) return "לא הצלחתי ליצור את הפרויקט.";
+      await translateRows("projects", [{ id: pid, name, address: a.address || null }]);
+      return `נשמר ✓ פרויקט חדש: ${name}`;
+    }
+    case "set_project_status": {
+      if (!proj) return needProj;
+      if (a.status === "סיום") a.status = "הסתיים";
+      if (!["בהתחלה", "בביצוע", "בפינישים", "הסתיים"].includes(a.status)) return "איזה סטטוס? בהתחלה / בביצוע / בפינישים / הסתיים";
+      const { error } = await db.from("projects").update({ status: a.status }).eq("id", proj.id);
+      return error ? "לא הצלחתי לעדכן." : `נשמר ✓ ${proj.name}: ${a.status}`;
+    }
+    // ----- suppliers -----
+    case "find_supplier": {
+      const { data } = await db.from("suppliers").select("id,name,field,phone,contacts");
+      const k = norm(a.supplier_name || a.vendor || a.title);
+      const hits = (data || []).filter((s: any) => k && (norm(s.name).includes(k) || k.includes(norm(s.name)) || norm(s.field).includes(k))).slice(0, 5);
+      if (!hits.length) return "לא מצאתי ספק כזה.";
+      return hits.map((s: any) => `${s.name}${s.field ? " (" + s.field + ")" : ""}\n${s.phone || "אין טלפון"}` + ((s.contacts || []).length ? "\n" + s.contacts.map((x: any) => `${x.name || ""}${x.role ? " " + x.role : ""}: ${x.phone || ""}`).join("\n") : "")).join("\n\n");
+    }
+    case "add_supplier": {
+      const name = String(a.supplier_name || "").trim();
+      if (!name) return "מה שם הספק?";
+      let sup: any = await supplierByName(name);
+      let created = false;
+      if (sup) {
+        const patch: any = {};
+        if (a.supplier_field) patch.field = a.supplier_field;
+        if (a.supplier_phone) patch.phone = a.supplier_phone;
+        if (Object.keys(patch).length) await db.from("suppliers").update(patch).eq("id", sup.id);
+      } else {
+        const ins = await db.from("suppliers").insert({ name, field: a.supplier_field || null, phone: a.supplier_phone || null }).select("id,name").maybeSingle();
+        if (ins.error) return "לא הצלחתי לשמור את הספק.";
+        sup = ins.data || (await supplierByName(name));
+        if (!sup) return "לא הצלחתי לשמור את הספק.";
+        created = true;
+      }
+      let linked = "";
+      if (a.project_name && proj) {
+        const lk = await db.from("project_suppliers").upsert({ project_id: proj.id, supplier_id: sup.id }, { onConflict: "project_id,supplier_id" });
+        if (!lk.error) linked = ` · שויך ל"${proj.name}"`;
+      }
+      return `נשמר ✓ ${created ? "ספק חדש" : "ספק עודכן"}: ${name}${a.supplier_field ? " · " + a.supplier_field : ""}${a.supplier_phone ? " · " + a.supplier_phone : ""}${linked}`;
+    }
+    case "link_supplier": {
+      if (!proj) return needProj;
+      const s = await supplierByName(a.supplier_name);
+      if (!s) return "לא מצאתי את הספק. אפשר להוסיף אותו קודם.";
+      const { error } = await db.from("project_suppliers").upsert({ project_id: proj.id, supplier_id: s.id }, { onConflict: "project_id,supplier_id" });
+      return error ? "לא הצלחתי לשייך." : `נשמר ✓ ${s.name} שויך ל"${proj.name}".`;
+    }
+    // ----- orders -----
+    case "add_order": {
+      if (!proj) return needProj;
+      const item = String(a.item || a.title || "").trim();
+      if (!item) return "מה להזמין?";
+      const s = a.supplier_name ? await supplierByName(a.supplier_name) : null;
+      const status = ["לא הוזמן", "הוזמן", "הגיע"].includes(a.status) ? a.status : "לא הוזמן";
+      const { error } = await db.from("orders").insert({ project_id: proj.id, supplier_id: s ? s.id : null, item, status });
+      if (error) return "לא הצלחתי לשמור את ההזמנה.";
+      if (s) await db.from("project_suppliers").upsert({ project_id: proj.id, supplier_id: s.id }, { onConflict: "project_id,supplier_id" });
+      return `נשמר ✓ הזמנה ב"${proj.name}": ${item}${s ? " · " + s.name : ""} · ${status}`;
+    }
+    case "update_order": {
+      if (!["לא הוזמן", "הוזמן", "הגיע"].includes(a.status)) return "איזה מצב? לא הוזמן / הוזמן / הגיע";
+      let q = db.from("orders").select("id,item,project_id,status");
+      if (proj && a.project_name) q = q.eq("project_id", proj.id);
+      const { data } = await q.limit(200);
+      const k = norm(a.item || a.title);
+      const hits = (data || []).filter((o: any) => k && (norm(o.item).includes(k) || k.includes(norm(o.item))));
+      if (!hits.length) return "לא מצאתי הזמנה כזאת.";
+      if (hits.length > 1) return "מצאתי כמה הזמנות:\n" + hits.slice(0, 6).map((o: any) => `• ${o.item} (${pNames[o.project_id] || ""}) · ${o.status}`).join("\n") + "\nכתוב את השם המדויק.";
+      const { error } = await db.from("orders").update({ status: a.status }).eq("id", hits[0].id);
+      return error ? "לא הצלחתי לעדכן." : `נשמר ✓ ${hits[0].item}: ${a.status}`;
+    }
+    case "list_orders": {
+      let q = db.from("orders").select("item,status,project_id,supplier_id").neq("status", "הגיע");
+      if (proj && a.project_name) q = q.eq("project_id", proj.id);
+      const { data } = await q.limit(30);
+      if (!data?.length) return "אין הזמנות פתוחות.";
+      return "הזמנות פתוחות:\n" + data.map((o: any) => `• ${o.item} (${pNames[o.project_id] || ""}) · ${o.status}`).join("\n");
+    }
+    // ----- documentation -----
+    case "add_doc": {
+      if (!proj) return needProj;
+      if (!mediaPath) return L(c, "שלח תמונה או וידאו עם הכיתוב.", "أرسل صورة أو فيديو مع وصف.");
+      const stage = STAGES.includes(a.stage) ? a.stage : "אחר";
+      const title = String(a.title || "").trim() || stage;
+      const { error } = await db.from("docs").insert({ project_id: proj.id, title, stage, note: a.note || null, photo: mediaPath, date: ymd(il()) });
+      if (error) return L(c, "לא הצלחתי לשמור את התיעוד.", "تعذّر حفظ التوثيق.");
+      if (c.role === "worker") await pushTo(await bossIds(), `${c.name || "פועל"} שלח תיעוד`, `${title} · ${proj.name}`);
+      return L(c, `נשמר ✓ תיעוד ב"${proj.name}": ${title}${stage ? " · " + stage : ""}${isVideo ? " · וידאו" : ""}`, `تم الحفظ ✓ ${proj.name}: ${title}`);
+    }
+    case "add_supplier_doc": {
+      if (!proj) return needProj;
+      if (!mediaPath) return "שלח תמונה או וידאו של התעודה.";
+      const s = await supplierByName(a.supplier_name);
+      if (!s) return "לא זיהיתי את הספק. כתוב את שמו בכיתוב.";
+      const kind = a.kind === "תיעוד" ? "תיעוד" : "תעודת משלוח";
+      const { error } = await db.from("supplier_docs").insert({ project_id: proj.id, supplier_id: s.id, kind, title: a.title || null, note: a.note || null, photo: mediaPath, date: ymd(il()) });
+      if (error) return "לא הצלחתי לשמור.";
+      await db.from("project_suppliers").upsert({ project_id: proj.id, supplier_id: s.id }, { onConflict: "project_id,supplier_id" });
+      return `נשמר ✓ ${kind} של ${s.name} ב"${proj.name}"`;
+    }
+    // ----- calendar -----
+    case "add_event": {
+      const title = String(a.title || "").trim();
+      if (!title) return "מה האירוע?";
+      if (!DATE_RE.test(a.due || a.date || "")) return "באיזה תאריך?";
+      const date = DATE_RE.test(a.due || "") ? a.due : a.date;
+      const hasTime = TIME_RE.test(a.time || "");
+      const time = hasTime ? a.time.padStart(5, "0") : "";
+      const startIso = hasTime ? ilToUtc(date, time) : ilToUtc(date, "00:00");
+      let endIso: string | null = null;
+      if (hasTime) endIso = TIME_RE.test(a.end_time || "") ? ilToUtc(date, a.end_time.padStart(5, "0")) : new Date(Date.parse(startIso) + 3600000).toISOString();
+      const id = crypto.randomUUID();
+      const { error } = await db.from("events").insert({ id, title, start_at: startIso, end_at: endIso, all_day: !hasTime, project_id: proj && a.project_name ? proj.id : null, location: a.location || null, notes: a.note || null });
+      if (error) return "לא הצלחתי לשמור את האירוע.";
+      let remNote = "";
+      const rm = a.remind_minutes === undefined || a.remind_minutes === null ? 30 : Number(a.remind_minutes);
+      if (rm >= 0) {
+        const base = hasTime ? Date.parse(startIso) : Date.parse(ilToUtc(date, "08:00"));
+        const when = new Date(base - (hasTime ? rm : 0) * 60000);
+        if (when.getTime() > Date.now()) {
+          const ids = await bossIds();
+          if (ids.length) {
+            await db.from("reminders").insert(ids.map((u: string) => ({ user_id: u, ref: "ev:" + id + ":" + u.slice(0, 6), title, body: (hasTime ? "בשעה " + time : "כל היום") + (a.location ? " · " + a.location : ""), remind_at: when.toISOString() })));
+            remNote = hasTime ? ` · תזכורת ${rm ? rm + " דק' לפני" : "בזמן האירוע"}` : " · תזכורת בבוקר";
+          }
+        }
+      }
+      return `נשמר ✓ ביומן: ${title} · ${fmtD(date)}${hasTime ? " " + time : " (כל היום)"}${a.location ? " · " + a.location : ""}${remNote}\n(יעבור ליומן גוגל כשתפתח את האפליקציה)`;
+    }
+    // ----- gantt -----
+    case "add_gantt": {
+      if (!proj) return needProj;
+      const st: any[] = Array.isArray(a.stages) ? a.stages : [];
+      const rows = st.filter((x) => String(x.title || "").trim() && DATE_RE.test(x.start || "") && DATE_RE.test(x.end || "")).map((x) => ({
+        project_id: proj.id, title: String(x.title).trim(), start_date: x.start, end_date: x.end < x.start ? x.start : x.end,
+        area: String(x.area || "").trim() || (["ריצוף", "חשמל", "אינסטלציה", "טיח", "איטום", "צבע", "בנייה", "הריסה"].find((k) => String(x.title).includes(k)) || "כללי"), pct: Math.max(0, Math.min(100, Math.round(Number(x.pct) || 0))),
+      }));
+      if (!rows.length) return "לא הבנתי את השלבים. כתוב שם שלב ותאריכי התחלה וסיום, למשל: ריצוף מה-1.11 עד 20.11.";
+      const { error } = await db.from("gantt_items").insert(rows);
+      if (error) return "לא הצלחתי לשמור בלוח הגאנט. ודא שהרצת את ה-SQL של הגאנט.";
+      return `נשמר ✓ בלוח הגאנט של "${proj.name}":\n` + rows.map((r) => `• ${r.title}: ${fmtD(r.start_date)} – ${fmtD(r.end_date)}`).join("\n");
+    }
+    case "update_gantt": {
+      let q = db.from("gantt_items").select("id,title,project_id,start_date,end_date,pct");
+      if (proj && a.project_name) q = q.eq("project_id", proj.id);
+      const { data } = await q.limit(80);
+      const key = norm(a.gantt_title || a.title || "");
+      const hits = (data || []).filter((g: any) => key && (norm(g.title).includes(key) || key.includes(norm(g.title))));
+      if (!hits.length) return "לא מצאתי שלב כזה בלוח הגאנט.";
+      if (hits.length > 1) return "מצאתי כמה שלבים:\n" + hits.slice(0, 6).map((g: any) => `• ${g.title} (${pNames[g.project_id] || ""})`).join("\n") + "\nכתוב שם מדויק או את הפרויקט.";
+      const g = hits[0]; const patch: any = {}; const parts: string[] = [];
+      if (a.pct !== undefined && a.pct !== null && isFinite(Number(a.pct))) { patch.pct = Math.max(0, Math.min(100, Math.round(Number(a.pct)))); parts.push(`התקדמות ${patch.pct}%`); }
+      if (DATE_RE.test(a.start || "")) { patch.start_date = a.start; parts.push(`התחלה ${fmtD(a.start)}`); }
       if (DATE_RE.test(a.end || "")) { patch.end_date = a.end; parts.push(`סיום ${fmtD(a.end)}`); }
       if (!parts.length) return "מה לעדכן בשלב? (אחוז התקדמות, תאריך התחלה או סיום)";
       const { error } = await db.from("gantt_items").update(patch).eq("id", g.id);
@@ -59,244 +215,3 @@ async function handleRules(c: Ctx, text: string, mediaPath: string | null): Prom
   const proj = matchProject("", text, P);
   const lead = text.trim().split(/\s+/)[0];
   if (lead === "משימה" && proj) {
-    const title = text.replace(/^\s*משימה/, "").replace(new RegExp(proj.name, "i"), "").replace(/[:：]/g, " ").replace(/\s+/g, " ").trim();
-    if (!title) return "חסר תיאור למשימה.";
-    const { error } = await db.from("tasks").insert({ project_id: proj.id, title, status: "לביצוע" });
-    return error ? "לא הצלחתי לשמור." : `נשמר ✓ משימה ב"${proj.name}": ${title}`;
-  }
-  return helpText(c) + "\n(הבינה המלאכותית לא זמינה כרגע, נסה שוב.)";
-}
-
-// ---------- documents (plans / files) ----------
-async function peekPending(from: string): Promise<any | null> {
-  const { data } = await db.from("bot_pending").select("payload,created_at").eq("phone", from).maybeSingle();
-  if (!data || Date.now() - Date.parse(data.created_at) > 15 * 60 * 1000) return null;
-  return data.payload;
-}
-async function savePlanRec(rec: any, proj: any): Promise<string> {
-  const { error } = await db.from("plans").insert({ project_id: proj.id, title: rec.title, file_path: rec.path, file_name: rec.name, file_type: rec.ext });
-  return error ? "לא הצלחתי לשמור את הקובץ." : `נשמר ✓ בתוכניות של "${proj.name}": ${rec.title}`;
-}
-const T_RCPT = /קבלה|קבלת|חשבונית|הוצא|receipt|invoice/i, T_PLAN = /תוכנית|תכנית|שרטוט/, T_DOC = /תיעוד/;
-async function handleDocument(c: Ctx, caption: string, id: string, filename: string): Promise<string> {
-  if (c.role !== "staff") return L(c, "אין לך הרשאה לשלוח קבצים.", "غير مسموح لك بإرسال الملفات.");
-  const dm = await downloadMedia(id);
-  if (!dm) return "לא הצלחתי לקבל את הקובץ. נסה שוב.";
-  const isPdf = dm.mime.includes("pdf");
-  // the caption says it is a receipt -> expense (PDF only)
-  if (isPdf && T_RCPT.test(caption) && !T_PLAN.test(caption)) return await route(c, caption, { id, video: false });
-  const ext = ((filename.match(/\.([A-Za-z0-9]{1,6})$/) || [])[1] || (isPdf ? "pdf" : "bin")).toLowerCase();
-  const path = `plans/wa/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-  const up = await db.storage.from("photos").upload(path, dm.buf, { contentType: dm.mime || "application/octet-stream" });
-  if (up.error) return "לא הצלחתי לשמור את הקובץ.";
-  const base = (filename || "").replace(/\.[^.]+$/, "").trim();
-  const { data: pr } = await db.from("projects").select("id,name");
-  const proj = matchProject("", caption, pr || []);
-  const rec: any = { kind: "plan_file", path, name: filename || `file.${ext}`, ext, title: base || caption.trim() || "תוכנית", projId: proj ? proj.id : null };
-  if (T_PLAN.test(caption) && proj) return await savePlanRec(rec, proj);
-  if (T_DOC.test(caption) && proj) return await saveDocRec(rec, proj);
-  await savePending(c.from, rec);
-  return "קיבלתי את הקובץ. מה זה? כתוב: תוכנית / " + (isPdf ? "קבלה / " : "") + "תיעוד" + (proj ? "" : ", ואת שם הפרויקט (" + (pr || []).map((p: any) => p.name).join(", ") + ")") + ".\nאפשר לכתוב 'בטל'.";
-}
-async function saveDocRec(rec: any, proj: any): Promise<string> {
-  const { error } = await db.from("docs").insert({ project_id: proj.id, title: rec.title, stage: "אחר", photo: rec.path, date: ymd(il()) });
-  return error ? "לא הצלחתי לשמור את התיעוד." : `נשמר ✓ תיעוד ב"${proj.name}": ${rec.title}`;
-}
-
-// ---------- contacts ----------
-async function handleContacts(c: Ctx, contacts: any[]): Promise<string> {
-  if (c.role !== "staff") return L(c, "אין לך הרשאה לשלוח אנשי קשר.", "غير مسموح لك بإرسال جهات الاتصال.");
-  const list = (contacts || []).map((x: any) => ({ name: String(x?.name?.formatted_name || x?.name?.first_name || "").trim(), phone: String(x?.phones?.[0]?.phone || x?.phones?.[0]?.wa_id || "").trim() })).filter((x: any) => x.name || x.phone);
-  if (!list.length) return "לא הצלחתי לקרוא את איש הקשר.";
-  await savePending(c.from, { kind: "contact", list });
-  return "קיבלתי: " + list.map((x: any) => `${x.name} ${x.phone}`.trim()).join(" ; ") + "\nמה לעשות איתו? למשל: \"תשמור כספק אלומיניום ותשייך לפרויקט הזולאי\" (או 'בטל').";
-}
-
-// ---------- voice notes (speech to text) ----------
-const STT_KEY = Deno.env.get("STT_KEY") || "";
-const STT_PROVIDER = (Deno.env.get("STT_PROVIDER") || "groq").toLowerCase();
-const STT_MODEL = Deno.env.get("STT_MODEL") || (STT_PROVIDER === "openai" ? "gpt-4o-transcribe" : "whisper-large-v3");
-async function transcribe(buf: Uint8Array, mime: string, hint: string): Promise<string> {
-  const ext = /ogg|opus/i.test(mime) ? "ogg" : /mp4|m4a|aac/i.test(mime) ? "m4a" : /mpeg|mp3/i.test(mime) ? "mp3" : /wav/i.test(mime) ? "wav" : /webm/i.test(mime) ? "webm" : "ogg";
-  const url = STT_PROVIDER === "openai" ? "https://api.openai.com/v1/audio/transcriptions" : "https://api.groq.com/openai/v1/audio/transcriptions";
-  const fd = new FormData();
-  fd.append("file", new Blob([buf], { type: mime.split(";")[0] || "audio/ogg" }), `voice.${ext}`);
-  fd.append("model", STT_MODEL);
-  fd.append("response_format", "json");
-  fd.append("temperature", "0");
-  if (hint) fd.append("prompt", hint.slice(0, 700));
-  const res = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${STT_KEY}` }, body: fd });
-  if (!res.ok) throw new Error("stt " + res.status);
-  const j = await res.json();
-  return String(j.text || "").trim();
-}
-async function handleAudio(c: Ctx, id: string): Promise<string> {
-  if (!STT_KEY) return L(c, "תמלול הודעות קוליות עדיין לא הופעל. כתוב לי בטקסט.", "الرسائل الصوتية غير مفعّلة بعد، اكتب لي نصاً.");
-  const dm = await downloadMedia(id);
-  if (!dm) return L(c, "לא הצלחתי לקבל את ההקלטה. נסה שוב.", "تعذّر استلام التسجيل، حاول مرة أخرى.");
-  if (dm.buf.length > 24 * 1024 * 1024) return L(c, "ההקלטה ארוכה מדי. שלח קצרה יותר.", "التسجيل طويل جداً، أرسل تسجيلاً أقصر.");
-  const { data: pr } = await db.from("projects").select("name");
-  const hint = "הודעה קולית של מנהל עבודה בחברת בנייה בישראל. פרויקטים: " + (pr || []).map((p: any) => p.name).join(", ") + ". אנשי צוות: " + c.team.map((m: any) => m.name).join(", ") + ". מילים: משימה, פגישה, בטון, טיח, ריצוף, שפכטל, אינסטלציה, חשמל, איטום, קבלה, ספק.";
-  let text = "";
-  try { text = await transcribe(dm.buf, dm.mime, hint); } catch (_e) { return L(c, "התמלול נכשל. נסה שוב או כתוב בטקסט.", "فشل التفريغ، حاول مرة أخرى أو اكتب نصاً."); }
-  if (text.replace(/[\s.,!?]/g, "").length < 2) return L(c, "לא שמעתי כלום בהקלטה.", "لم أسمع شيئاً في التسجيل.");
-  const out = await route(c, text, null, true);
-  return `🎤 ${L(c, "שמעתי", "سمعت")}: "${text.slice(0, 600)}"\n\n${out}`;
-}
-
-// ---------- routing ----------
-async function route(c: Ctx, text: string, media: { id: string; video: boolean } | null, voice = false): Promise<string> {
-  const t = text.trim();
-  // image/video waiting for the missing detail (usually the project)
-  let tt = t;
-  let mediaCarry: { buf: Uint8Array; mime: string } | null = null;
-  let carryPath: string | null = null, carryVideo = false;
-  if (c.role === "staff" && !media && t) {
-    const mp = await peekPending(c.from);
-    if (mp && mp.kind === "media_wait") {
-      await db.from("bot_pending").delete().eq("phone", c.from);
-      if (NO.test(t)) return "בוטל. התמונה לא נשמרה.";
-      try {
-        const dl = await db.storage.from("photos").download(mp.path);
-        if (dl.data) { mediaCarry = { buf: new Uint8Array(await dl.data.arrayBuffer()), mime: mp.mime }; carryPath = mp.path; carryVideo = !!mp.video; }
-      } catch (_e) { /* ignore */ }
-      if (mediaCarry) tt = (mp.text ? mp.text + "\n" : "") + "(תשובה לשאלה על התמונה ששלחתי קודם: " + t + ")";
-    }
-  }
-  // contact waiting for an instruction
-  if (c.role === "staff" && !media && t) {
-    const cp = await peekPending(c.from);
-    if (cp && cp.kind === "contact") {
-      await db.from("bot_pending").delete().eq("phone", c.from);
-      if (NO.test(t)) return "בוטל.";
-      tt = t + "\n(איש קשר שנשלח: " + cp.list.map((x: any) => `${x.name}, ${x.phone}`).join(" ; ") + ")";
-    }
-  }
-  // file waiting for a project
-  if (c.role === "staff" && !media && t) {
-    const pp = await peekPending(c.from);
-    if (pp && pp.kind === "plan_file") {
-      if (NO.test(t)) { await db.from("bot_pending").delete().eq("phone", c.from); return "בוטל. הקובץ נשאר שמור ללא שיוך."; }
-      const { data: pr } = await db.from("projects").select("id,name");
-      const list = (pr || []).map((p: any) => p.name).join(", ");
-      const kindW = T_RCPT.test(t) ? "rcpt" : T_PLAN.test(t) ? "plan" : T_DOC.test(t) ? "doc" : "";
-      const proj = (t.length <= 80 ? matchProject(t, t, pr || []) : null) || (pr || []).find((p: any) => p.id === pp.projId) || null;
-      if (!kindW) { if (t.length <= 80) return "זו תוכנית, קבלה או תיעוד? כתוב אחת מהמילים האלה" + (proj ? "" : " ואת שם הפרויקט (" + list + ")") + ", או 'בטל'."; }
-      else if (kindW === "rcpt") {
-        if (pp.ext !== "pdf") return "קבלה אפשר לשלוח כ-PDF או כתמונה. הקובץ הזה אינו PDF. כתוב 'תוכנית' או 'תיעוד', או 'בטל'.";
-        await db.from("bot_pending").delete().eq("phone", c.from);
-        const dl = await db.storage.from("photos").download(pp.path);
-        if (dl.data) {
-          mediaCarry = { buf: new Uint8Array(await dl.data.arrayBuffer()), mime: "application/pdf" }; carryPath = pp.path; carryVideo = false;
-          tt = "(קבלה ב-PDF שנשלחה קודם) " + t + (proj && !matchProject(t, t, pr || []) ? " " + proj.name : "");
-        }
-      } else {
-        if (!proj) return "לאיזה פרויקט? כתוב את שמו (" + list + ") או 'בטל'.";
-        await db.from("bot_pending").delete().eq("phone", c.from);
-        return kindW === "plan" ? await savePlanRec(pp, proj) : await saveDocRec(pp, proj);
-      }
-    }
-  }
-  // confirmations
-  if (c.role === "staff") {
-    if (YES.test(t) || NO.test(t)) {
-      const p = await takePending(c.from);
-      if (p) return YES.test(t) ? await execPending(p, c) : "בוטל.";
-      if (YES.test(t)) return "אין פעולה שממתינה לאישור.";
-    } else {
-      try { await db.from("bot_pending").delete().eq("phone", c.from); } catch (_e) { /* ignore */ }
-    }
-  }
-  let m: { buf: Uint8Array; mime: string } | null = null;
-  let path: string | null = null;
-  if (media) {
-    m = await downloadMedia(media.id);
-    if (m) path = await uploadMedia(m.buf, m.mime);
-    if (!path) return L(c, "לא הצלחתי לקבל את הקובץ. נסה שוב.", "تعذّر استلام الملف، حاول مرة أخرى.");
-  }
-  if (mediaCarry) { m = mediaCarry; path = carryPath; media = { id: "", video: carryVideo }; }
-  if (AI_KEY) {
-    try {
-      const out = await handleAI(c, voice ? tt + "\n[הערה: הטקסט תומלל אוטומטית מהודעה קולית, ייתכנו טעויות שמיעה בשמות ובמילים. תקן לפי רשימות הפרויקטים והצוות.]" : tt, m, !!media?.video, path);
-      if (c.role === "staff" && media && m && path && (/^(לאיזה פרויקט|لأي مشروع)/.test(out) || /[?؟]\s*$/.test(out.trim()))) {
-        await savePending(c.from, { kind: "media_wait", path, mime: m.mime, video: !!media.video, text: t });
-      }
-      return out;
-    } catch (_e) { /* fall back */ }
-  }
-  return await handleRules(c, tt, path);
-}
-
-// ---------- webhook ----------
-async function processMessages(msgs: any[]) {
-  for (const m of msgs) {
-    const from = String(m.from || "").replace(/\D/g, "");
-    try {
-      // de-duplicate Meta retries
-      const seen = await db.from("bot_seen").insert({ id: m.id });
-      if (seen.error && (seen.error as any).code === "23505") continue;
-      const c = await identify(from);
-      if (!c) continue;
-      let out = helpText(c);
-      if (m.type === "text") out = await route(c, m.text?.body || "", null);
-      else if (m.type === "image") out = await route(c, m.image?.caption || "", { id: m.image.id, video: false });
-      else if (m.type === "video") out = await route(c, m.video?.caption || "", { id: m.video.id, video: true });
-      else if (m.type === "audio") out = await handleAudio(c, m.audio.id);
-      else if (m.type === "contacts") out = await handleContacts(c, m.contacts || []);
-      else if (m.type === "document") out = await handleDocument(c, m.document?.caption || "", m.document.id, m.document?.filename || "");
-      else out = L(c, "אני מבין טקסט, תמונות, וידאו וקבצים בלבד.", "أفهم النصوص والصور والفيديو والملفات فقط.");
-      {
-        let uText = "";
-        if (m.type === "text") uText = m.text?.body || "";
-        else if (m.type === "image" || m.type === "video") uText = "[" + (m.type === "image" ? "תמונה" : "וידאו") + "] " + ((m[m.type]?.caption) || "");
-        else if (m.type === "audio") { const mm = /"([^"]*)"/.exec(out); uText = "[הודעה קולית] " + (mm ? mm[1] : ""); }
-        else if (m.type === "document") uText = "[קובץ] " + (m.document?.caption || m.document?.filename || "");
-        if (uText) await saveMem(from, uText, out);
-      }
-      await reply(from, out);
-    } catch (_e) {
-      try { await reply(from, "משהו השתבש, נסה שוב."); } catch (_e2) { /* ignore */ }
-    }
-  }
-}
-
-Deno.serve(async (req) => {
-  const url = new URL(req.url);
-  if (req.method === "GET") {
-    if (url.searchParams.get("hub.mode") === "subscribe" && url.searchParams.get("hub.verify_token") === Deno.env.get("WA_VERIFY_TOKEN")) {
-      return new Response(url.searchParams.get("hub.challenge") || "");
-    }
-    return new Response("forbidden", { status: 403 });
-  }
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
-  try {
-    const body = await req.json();
-    if (body?.action === "translate" || body?.action === "backfill") {
-      if (!(await authStaff(req))) return jres({ ok: false, error: "unauthorized" }, 401);
-      if (body.action === "translate") {
-        const table = body.table === "projects" ? "projects" : "tasks";
-        const { data } = await db.from(table).select("*").eq("id", body.id);
-        const n = await translateRows(table, data || []);
-        return jres({ ok: true, translated: n });
-      }
-      let done = 0, remaining = 0;
-      const { data: pj } = await db.from("projects").select("id,name,address,name_ar");
-      const pTodo = (pj || []).filter((x: any) => !x.name_ar);
-      done += await translateRows("projects", pTodo.slice(0, 30));
-      remaining += Math.max(0, pTodo.length - 30);
-      const { data: tk } = await db.from("tasks").select("id,title,notes,title_ar").limit(1000);
-      const tTodo = (tk || []).filter((x: any) => !x.title_ar);
-      done += await translateRows("tasks", tTodo.slice(0, 60));
-      remaining += Math.max(0, tTodo.length - 60);
-      return jres({ ok: true, translated: done, remaining });
-    }
-    const msgs = body?.entry?.[0]?.changes?.[0]?.value?.messages || [];
-    if (msgs.length) {
-      const job = processMessages(msgs);
-      // @ts-ignore EdgeRuntime exists on Supabase
-      if (typeof EdgeRuntime !== "undefined" && EdgeRuntime.waitUntil) EdgeRuntime.waitUntil(job);
-      else await job;
-    }
-  } catch (_e) { /* always 200 to Meta */ }
-  return new Response("ok", { headers: CORS });
-});
