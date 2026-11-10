@@ -22,7 +22,7 @@ Deno.serve(async (req) => {
     const { data: subs } = await db.from("push_subscriptions").select("*").eq("user_id", r.user_id);
     for (const s of subs || []) {
       try {
-        await webpush.sendNotification(s.sub, JSON.stringify({ title: r.title, body: r.body || "" }));
+        await webpush.sendNotification(s.sub, JSON.stringify({ title: r.title, body: r.body || "", ref: r.ref || "" }));
         n++;
       } catch (e) {
         if (e.statusCode === 404 || e.statusCode === 410) {

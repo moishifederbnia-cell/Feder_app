@@ -286,3 +286,7 @@ i.lg{width:10px;height:10px}
 @page land{size:A4 landscape;margin:10mm}
 @media print{.rep.sched{page:land}.rep.sched .schwrap{overflow:visible}.rep.sched .sch{min-width:0;font-size:13px}.sch tr{break-inside:avoid}}
 .rep.sched .rlogo{width:84px;height:84px;border-radius:14px}
+
+/* notification target highlight */
+.item.flash{outline:3px solid var(--accent,#F7941D);outline-offset:2px;transition:outline-color .4s}
+.bellit{border:0;font:inherit;color:inherit;cursor:pointer}

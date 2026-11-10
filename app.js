@@ -199,7 +199,7 @@ var BELL=[];
 function bellSeen(){try{return +localStorage.getItem('feder_bell_seen')||0;}catch(e){return 0;}}
 async function loadBell(){
   try{
-    var r=await sb.from('reminders').select('id,title,body,remind_at').eq('user_id',AUTH.uid).eq('sent',true).order('remind_at',{ascending:false}).limit(30);
+    var r=await sb.from('reminders').select('id,ref,title,body,remind_at').eq('user_id',AUTH.uid).eq('sent',true).order('remind_at',{ascending:false}).limit(30);
     if(r.data){var a=JSON.stringify(BELL.map(function(x){return x.id;}));BELL=r.data;if(a!==JSON.stringify(BELL.map(function(x){return x.id;})))render();}
   }catch(e){}
 }
@@ -212,12 +212,64 @@ function openBell(){
   var html='<div class="scrim" data-act="closeSheet"></div><div class="sheet" role="dialog" aria-modal="true"><h2>התראות</h2>'+
    (BELL.length?'<div class="stack" style="margin-bottom:12px">'+BELL.map(function(x){
      var d=new Date(x.remind_at),isNew=d.getTime()>seen;
-     return '<div class="item" style="padding:10px 12px"><b>'+esc(x.title)+'</b>'+(isNew?' '+chip('warn','חדש'):'')+(x.body?'<br><span class="muted">'+esc(x.body)+'</span>':'')+'<br><span class="muted">'+d.toLocaleDateString('he-IL',{day:'numeric',month:'numeric'})+' · '+hm(d)+'</span></div>';
+     var inner='<b>'+esc(x.title)+'</b>'+(isNew?' '+chip('warn','חדש'):'')+(x.body?'<br><span class="muted">'+esc(x.body)+'</span>':'')+'<br><span class="muted">'+d.toLocaleDateString('he-IL',{day:'numeric',month:'numeric'})+' · '+hm(d)+'</span>';
+     return refTarget(x.ref)?'<button class="item bellit" data-act="bellopen" data-ref="'+esc(x.ref)+'" style="padding:10px 12px;width:100%;text-align:start"><span style="flex:1">'+inner+'</span>'+'<span style="transform:scaleX(-1);display:inline-flex;opacity:.55">'+ico('back',18)+'</span></button>':'<div class="item" style="padding:10px 12px">'+inner+'</div>';
    }).join('')+'</div>':'<p class="muted" style="margin-bottom:12px">עוד לא הגיעו התראות.</p>')+
    '<div class="fbtns"><button class="btn btn-line" type="button" data-act="closeSheet">סגור</button></div></div>';
   $('#layer').innerHTML=html;pushOverlay('sheet');
   try{localStorage.setItem('feder_bell_seen',String(Date.now()));}catch(e){}
   setTimeout(render,0);
+}
+/* ---------- open the thing a notification is about ---------- */
+function refTarget(ref){
+  ref=String(ref||'');var m;
+  if((m=/^(?:task|assign):([^:]+)/.exec(ref)))return {k:'task',id:m[1]};
+  if((m=/^ev:(g:[^:]+|[^:]+)/.exec(ref)))return {k:'ev',id:m[1]};
+  return null;
+}
+function flashItem(sel){setTimeout(function(){var b=document.querySelector(sel);var it=b&&(b.closest('.item')||b);if(!it)return;it.scrollIntoView({block:'center',behavior:'smooth'});it.classList.add('flash');setTimeout(function(){it.classList.remove('flash');},2600);},120);}
+function openRef(ref){
+  var t=refTarget(ref);if(!t)return false;
+  if($('#layer .sheet')||form){closeSheet(true);try{if(history.state&&history.state.sheet){var hs=navSnap();history.replaceState(hs,'');navKey=JSON.stringify(hs);}}catch(e){}}
+  if(AUTH.role==='worker'){
+    if(t.k!=='task')return false;
+    var wt=WK.tasks.filter(function(q){return q.id===t.id;})[0];
+    if(!wt){toast('المهمة غير موجودة (ربما حُذفت)');return false;}
+    WK.proj='';WK.mine=false;if(wt.status==='הושלם')WK.showDone=true;render();
+    flashItem('[data-act="wtoggle"][data-id="'+t.id+'"]');return true;
+  }
+  if(t.k==='task'){
+    var tk=byId('tasks',t.id);
+    if(!tk){toast('המשימה לא נמצאה (אולי נמחקה)');return false;}
+    if(tk.projectId&&byId('projects',tk.projectId)){UI.view='project';UI.projectId=tk.projectId;UI.tab='tasks';}
+    else{UI.view='tasks';UI.taskFilter='all';UI.taskProject='';UI.taskPerson='';}
+    window.scrollTo(0,0);render();
+    setTimeout(function(){openForm('task',t.id);},60);return true;
+  }
+  var ev=allEvents().filter(function(e){return String(e.id)===t.id;})[0];
+  if(!ev){toast('האירוע לא נמצא ביומן');return false;}
+  var dt=new Date(ev.date+'T12:00:00');
+  UI.view='calendar';UI.calMonth=new Date(dt.getFullYear(),dt.getMonth(),1);UI.calSel=ev.date;
+  window.scrollTo(0,0);render();
+  if(byId('events',t.id))setTimeout(function(){openForm('event',t.id);},60);
+  return true;
+}
+/* a tapped push notification: find which reminder it was, then open it once data is in */
+var PENDING_OPEN=null;
+(function(){try{var q=new URLSearchParams(location.search);if(q.has('nt')||q.has('ref')){PENDING_OPEN={ref:q.get('ref')||'',title:q.get('nt')||'',body:q.get('nb')||''};history.replaceState(history.state,'',location.pathname);}}catch(e){}})();
+if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',function(e){var d=e.data||{};if(d.type==='notif-open'){PENDING_OPEN={ref:d.ref||'',title:d.title||'',body:d.body||''};runPendingOpen();}});
+async function runPendingOpen(){
+  if(!PENDING_OPEN||AUTH.state!=='app')return;
+  if(AUTH.role==='worker'?!WK.ok:!loaded.tasks)return;
+  var p=PENDING_OPEN;PENDING_OPEN=null;var ref=p.ref;
+  if(!ref&&p.title){
+    try{var q=sb.from('reminders').select('ref').eq('user_id',AUTH.uid).eq('title',p.title);if(p.body)q=q.eq('body',p.body);
+      var r=await q.order('remind_at',{ascending:false}).limit(1);if(r.data&&r.data[0])ref=r.data[0].ref;}catch(e){}
+  }
+  var t=refTarget(ref);
+  if(t&&AUTH.role!=='worker'&&t.k==='task'&&!byId('tasks',t.id)){try{await loadAll();}catch(e){}}
+  if(AUTH.role==='worker'&&t&&!WK.tasks.some(function(q){return q.id===t.id;})){try{await loadWorker();}catch(e){}}
+  if(!openRef(ref)&&AUTH.role!=='worker')openBell();
 }
 function teamName(id){var m=byId('team_members',id);return m?m.name:'';}
 function myMember(){return S.team_members.filter(function(m){return m.user_id&&m.user_id===AUTH.uid;})[0]||null;}
@@ -407,7 +459,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 48</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 49</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -897,7 +949,7 @@ function vWorker(){
     h+='<div style="text-align:center;margin:18px 0 6px"><button class="link" data-act="wshowdone">'+(WK.showDone?'إخفاء المنجزة':'عرض المهام المنجزة ('+done.length+')')+'</button></div>';
     if(WK.showDone)h+='<div class="stack">'+done.map(row).join('')+'</div>';
   }
-  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v48</div></main>';
+  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v49</div></main>';
 }
 function vAccountant(){
   var list=S.expenses.filter(expFilt);
@@ -1363,6 +1415,7 @@ document.addEventListener('click',function(ev){
   }
   else if(a==='mytasks'){UI.taskPerson='me';UI.taskFilter='open';UI.view='tasks';window.scrollTo(0,0);render();}
   else if(a==='bell'){openBell();}
+  else if(a==='bellopen'){openRef(el.getAttribute('data-ref'));}
   else if(a==='reload'){location.reload();}
   else if(a==='signup'){doSignup();}
 });
@@ -1486,9 +1539,9 @@ async function boot(session){
   AUTH.state='app';
   if(AUTH.role!=='worker')snapLoad();
   render();
-  if(AUTH.role==='worker'){await loadWorker();return;}
+  if(AUTH.role==='worker'){await loadWorker();runPendingOpen();return;}
   gRestore();
-  await loadAll();loadBell();subscribe();
+  await loadAll();loadBell();subscribe();runPendingOpen();
 }
 sb.auth.onAuthStateChange(function(ev,session){
   if(ev==='INITIAL_SESSION'||ev==='SIGNED_IN'||ev==='SIGNED_OUT')setTimeout(function(){boot(session);},0);
