@@ -213,11 +213,9 @@ i.lg{width:10px;height:10px}
 @media (prefers-reduced-motion:no-preference){
  #splash img{animation:logoIn .9s cubic-bezier(.2,.9,.3,1.25) both}
  #splash b{animation:fadeUp .6s .55s both}
- .enter main.wrap{animation:fadeUp .35s ease-out both}
- .enter .stack>*{animation:fadeUp .35s ease-out both}
- .enter .stack>*:nth-child(2){animation-delay:.04s}.enter .stack>*:nth-child(3){animation-delay:.08s}.enter .stack>*:nth-child(4){animation-delay:.12s}
- .enter .stack>*:nth-child(5){animation-delay:.16s}.enter .stack>*:nth-child(6){animation-delay:.2s}.enter .stack>*:nth-child(n+7){animation-delay:.24s}
- .enter .bar i{transform-origin:right;animation:grow .8s .15s cubic-bezier(.2,.8,.2,1) both}
+ .enter main.wrap{animation:fadeUp .18s ease-out both}
+ .enter .stack>*{animation:none}
+ .enter .bar i{transform-origin:right;animation:grow .35s cubic-bezier(.2,.8,.2,1) both}
  .tick.pop{animation:popIn .45s ease}
  .tick.pop svg *{stroke-dasharray:30;stroke-dashoffset:30;animation:draw .35s .08s ease-out forwards}
  .bellbtn.ring svg{transform-origin:50% 10%;animation:ring 4s ease-in-out infinite}
