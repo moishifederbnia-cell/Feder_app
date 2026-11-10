@@ -1,7 +1,3 @@
-  return L2.find((s: any) => norm(s.name) === k) || L2.find((s: any) => norm(s.name).includes(k) || k.includes(norm(s.name))) || null;
-}
-
-function helpText(c: Ctx) {
   if (c.role === "worker") return "أنا مساعد فيدر للبناء. يمكنك:\n• \"مهامي\" لعرض مهامك\n• \"أنهيت مهمة الخرسانة\"\n• إرسال صورة أو فيديو مع اسم المشروع كتوثيق";
   return `אני הבוט של פדר בניה. אפשר לכתוב חופשי, למשל:
 • משימה בנוף: להזמין בטון מחר, ואבו יאסר יפנה את הפסולת
@@ -114,6 +110,7 @@ async function handleAudio(c: Ctx, id: string): Promise<string> {
 // ---------- routing ----------
 async function route(c: Ctx, text: string, media: { id: string; video: boolean } | null, voice = false): Promise<string> {
   const t = text.trim();
+  if (c.role === "staff" && !media && /^\s*גרסה\s*$/.test(t)) return "גרסת הבוט: " + BOT_VERSION;
   // image/video waiting for the missing detail (usually the project)
   let tt = t;
   let mediaCarry: { buf: Uint8Array; mime: string } | null = null;

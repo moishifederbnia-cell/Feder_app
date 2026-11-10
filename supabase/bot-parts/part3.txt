@@ -200,3 +200,4 @@
         if (a.supplier_phone) patch.phone = a.supplier_phone;
         if (Object.keys(patch).length) await db.from("suppliers").update(patch).eq("id", sup.id);
       } else {
+        const ins = await db.from("suppliers").insert({ name, field: a.supplier_field || null, phone: a.supplier_phone || null }).select("id,name").maybeSingle();

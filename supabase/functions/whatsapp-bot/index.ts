@@ -383,6 +383,7 @@ async function takePending(from: string): Promise<any | null> {
 const YES = /^(כן|אישור|אשר|בטח|סבבה|yes|ok|okay|نعم|اي|أيوه)\s*[.!]?$/i;
 const NO = /^(לא|בטל|ביטול|עזוב|no|cancel|لا)\s*[.!]?$/i;
 
+const BOT_VERSION = "10.11.26 (לוח זמנים, זיכרון שיחה, קבלות PDF, קול)";
 const GANTT_COLORS = ["ירוק", "כתום", "כחול", "אדום", "סגול", "אפור"];
 const ganttColor = (c: any) => { const v = String(c || "").trim(); return GANTT_COLORS.includes(v) ? v : null; };
 const strOrNull = (v: any) => { const t = String(v == null ? "" : v).trim(); return t && t !== "-" && t !== "אין" ? t : null; };
@@ -1005,6 +1006,7 @@ async function handleAudio(c: Ctx, id: string): Promise<string> {
 // ---------- routing ----------
 async function route(c: Ctx, text: string, media: { id: string; video: boolean } | null, voice = false): Promise<string> {
   const t = text.trim();
+  if (c.role === "staff" && !media && /^\s*גרסה\s*$/.test(t)) return "גרסת הבוט: " + BOT_VERSION;
   // image/video waiting for the missing detail (usually the project)
   let tt = t;
   let mediaCarry: { buf: Uint8Array; mime: string } | null = null;
