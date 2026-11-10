@@ -213,13 +213,15 @@ function openBell(){
    (BELL.length?'<div class="stack" style="margin-bottom:12px">'+BELL.map(function(x){
      var d=new Date(x.remind_at),isNew=d.getTime()>seen;
      var inner='<b>'+esc(x.title)+'</b>'+(isNew?' '+chip('warn','חדש'):'')+(x.body?'<br><span class="muted">'+esc(x.body)+'</span>':'')+'<br><span class="muted">'+d.toLocaleDateString('he-IL',{day:'numeric',month:'numeric'})+' · '+hm(d)+'</span>';
-     return refTarget(x.ref)?'<button class="item bellit" data-act="bellopen" data-ref="'+esc(x.ref)+'" style="padding:10px 12px;width:100%;text-align:start"><span style="flex:1">'+inner+'</span>'+'<span style="transform:scaleX(-1);display:inline-flex;opacity:.55">'+ico('back',18)+'</span></button>':'<div class="item" style="padding:10px 12px">'+inner+'</div>';
+     return refTarget(x.ref)?'<button class="item bellit" data-act="bellopen" data-id="'+esc(x.id)+'" data-ref="'+esc(x.ref)+'" style="padding:10px 12px;width:100%;text-align:start"><span style="flex:1">'+inner+'</span>'+'<span style="transform:scaleX(-1);display:inline-flex;opacity:.55">'+ico('back',18)+'</span></button>':'<div class="item" style="padding:10px 12px">'+inner+'</div>';
    }).join('')+'</div>':'<p class="muted" style="margin-bottom:12px">עוד לא הגיעו התראות.</p>')+
-   '<div class="fbtns"><button class="btn btn-line" type="button" data-act="closeSheet">סגור</button></div></div>';
+   '<div class="fbtns">'+(BELL.length?'<button class="btn btn-line" type="button" data-act="bellclear">נקה הכול</button>':'')+'<button class="btn btn-line" type="button" data-act="closeSheet">סגור</button></div></div>';
   $('#layer').innerHTML=html;pushOverlay('sheet');
   try{localStorage.setItem('feder_bell_seen',String(Date.now()));}catch(e){}
   setTimeout(render,0);
 }
+function bellDrop(id){if(!id)return;BELL=BELL.filter(function(x){return x.id!==id;});sb.from('reminders').delete().eq('id',id).eq('sent',true).then(function(){},function(){});}
+function bellClear(){var ids=BELL.map(function(x){return x.id;});BELL=[];if(ids.length)sb.from('reminders').delete().in('id',ids).eq('sent',true).then(function(){},function(){});closeSheet();render();toast('ההתראות נוקו');}
 /* ---------- open the thing a notification is about ---------- */
 function refTarget(ref){
   ref=String(ref||'');var m;
@@ -261,11 +263,13 @@ if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('messag
 async function runPendingOpen(){
   if(!PENDING_OPEN||AUTH.state!=='app')return;
   if(AUTH.role==='worker'?!WK.ok:!loaded.tasks)return;
-  var p=PENDING_OPEN;PENDING_OPEN=null;var ref=p.ref;
+  var p=PENDING_OPEN;PENDING_OPEN=null;var ref=p.ref,bid=null;
   if(!ref&&p.title){
-    try{var q=sb.from('reminders').select('ref').eq('user_id',AUTH.uid).eq('title',p.title);if(p.body)q=q.eq('body',p.body);
-      var r=await q.order('remind_at',{ascending:false}).limit(1);if(r.data&&r.data[0])ref=r.data[0].ref;}catch(e){}
+    try{var q=sb.from('reminders').select('id,ref').eq('user_id',AUTH.uid).eq('sent',true).eq('title',p.title);if(p.body)q=q.eq('body',p.body);
+      var r=await q.order('remind_at',{ascending:false}).limit(1);if(r.data&&r.data[0]){ref=r.data[0].ref;bid=r.data[0].id;}}catch(e){}
   }
+  if(!bid&&ref){var bm=BELL.filter(function(x){return x.ref===ref;})[0];if(bm)bid=bm.id;else{try{var r2=await sb.from('reminders').select('id').eq('user_id',AUTH.uid).eq('sent',true).eq('ref',ref).order('remind_at',{ascending:false}).limit(1);if(r2.data&&r2.data[0])bid=r2.data[0].id;}catch(e){}}}
+  bellDrop(bid);
   var t=refTarget(ref);
   if(t&&AUTH.role!=='worker'&&t.k==='task'&&!byId('tasks',t.id)){try{await loadAll();}catch(e){}}
   if(AUTH.role==='worker'&&t&&!WK.tasks.some(function(q){return q.id===t.id;})){try{await loadWorker();}catch(e){}}
@@ -459,7 +463,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 49</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 50</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -490,7 +494,7 @@ function vTasks(){
   var list=S.tasks.filter(function(t){
     if(UI.taskProject&&t.projectId!==UI.taskProject)return false;
     if(UI.taskPerson){var pid=UI.taskPerson==='me'?(myMember()||{}).id:UI.taskPerson;if(t.assigneeId!==pid)return false;}
-    if(UI.taskFilter==='open')return t.status!=='הושלם'&&t.status!=='ממתין להחלטה';
+    if(UI.taskFilter==='open')return (t.status!=='הושלם'||t.id===UI.justDone)&&t.status!=='ממתין להחלטה';
     if(UI.taskFilter==='dec')return t.status==='ממתין להחלטה';
     if(UI.taskFilter==='done')return t.status==='הושלם';
     return true;});
@@ -662,7 +666,12 @@ function vProject(){
   h+='<div class="pgrid" role="group" aria-label="חלקי הפרויקט">'+tabs.map(function(t){return '<button class="pic" data-act="tab" data-t="'+t[0]+'" aria-pressed="'+(UI.tab===t[0])+'"><span class="pcirc">'+ico(t[2],28)+(t[3]?'<span class="pcnt">'+t[3]+'</span>':'')+'</span><span class="plab">'+t[1]+'</span></button>';}).join('')+'</div>';
   if(UI.tab==='tasks'){
     h+='<div class="sec" style="margin-top:12px"><h2>משימות</h2>'+addBtn('task','הוסף',p.id)+'</div>';
-    h+=tasks.length?'<div class="stack">'+sortTasks(tasks).map(taskRow.bind(null,false,true)).join('')+'</div>':emptyBox('עוד אין משימות בפרויקט הזה.');
+    var tOpen=tasks.filter(function(t){return t.status!=='הושלם'||t.id===UI.justDone;}),tDone=tasks.filter(function(t){return t.status==='הושלם'&&t.id!==UI.justDone;});
+    h+=tOpen.length?'<div class="stack">'+sortTasks(tOpen).map(taskRow.bind(null,false,true)).join('')+'</div>':emptyBox(tasks.length?'כל המשימות בפרויקט הושלמו ✓':'עוד אין משימות בפרויקט הזה.');
+    if(tDone.length){
+      h+='<div style="text-align:center;margin:14px 0 8px"><button class="link" data-act="pdone" aria-expanded="'+(!!UI.projDone)+'">'+(UI.projDone?'הסתר משימות שהושלמו':'הצג משימות שהושלמו ('+tDone.length+')')+'</button></div>';
+      if(UI.projDone)h+='<div class="stack" style="opacity:.75">'+tDone.slice().sort(function(a,b){return String(b.done_at||'').localeCompare(String(a.done_at||''));}).map(taskRow.bind(null,false,true)).join('')+'</div>';
+    }
   }else if(UI.tab==='expenses'){
     h+='<div class="sec" style="margin-top:12px"><h2>קבלות</h2>'+addBtn('expense','קבלה',p.id)+'</div>';
     h+='<div class="card" style="margin-bottom:10px"><div class="row1"><span class="muted">סה״כ קבלות</span>'+(bud?'<span class="muted">תקציב '+money(bud)+'</span>':'')+'</div><div class="stat"><div class="v">'+money(spent)+'</div></div>'+(bud?'<div class="bar" role="img" aria-label="'+pct+' אחוז מהתקציב"><i style="width:'+pct+'%"></i></div>':'')+'</div>';
@@ -949,7 +958,7 @@ function vWorker(){
     h+='<div style="text-align:center;margin:18px 0 6px"><button class="link" data-act="wshowdone">'+(WK.showDone?'إخفاء المنجزة':'عرض المهام المنجزة ('+done.length+')')+'</button></div>';
     if(WK.showDone)h+='<div class="stack">'+done.map(row).join('')+'</div>';
   }
-  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v49</div></main>';
+  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v50</div></main>';
 }
 function vAccountant(){
   var list=S.expenses.filter(expFilt);
@@ -1342,7 +1351,7 @@ document.addEventListener('click',function(ev){
   var a=el.getAttribute('data-act'),id=el.getAttribute('data-id');
   if(a==='tasksby'){UI.taskFilter=el.getAttribute('data-v');UI.view='tasks';window.scrollTo(0,0);render();}
   else if(a==='nav'){UI.view=el.getAttribute('data-v');window.scrollTo(0,0);render();}
-  else if(a==='project'){UI.projectId=id;UI.view='project';UI.tab='tasks';window.scrollTo(0,0);render();}
+  else if(a==='project'){UI.projDone=false;UI.projectId=id;UI.view='project';UI.tab='tasks';window.scrollTo(0,0);render();}
   else if(a==='cmonth'){var cm=UI.calMonth||new Date();UI.calMonth=new Date(cm.getFullYear(),cm.getMonth()+(+el.getAttribute('data-v')),1);render();}
   else if(a==='cday'){UI.calSel=el.getAttribute('data-v');render();}
   else if(a==='ctoday'){var n=new Date();UI.calMonth=new Date(n.getFullYear(),n.getMonth(),1);UI.calSel=todayStr();render();}
@@ -1366,7 +1375,7 @@ document.addEventListener('click',function(ev){
     var wasDone=t.status==='הושלם';
     sb.from('tasks').update(wasDone?{status:'לביצוע',done_at:null}:{status:'הושלם',done_at:new Date().toISOString()}).eq('id',id).then(function(){loadTable('tasks');});
     if(!wasDone){
-      t.status='הושלם';UI.justDone=id;render();setTimeout(function(){UI.justDone='';},900);
+      t.status='הושלם';UI.justDone=id;render();setTimeout(function(){if(UI.justDone===id){UI.justDone='';render();}},900);
       var sib=S.tasks.filter(function(q){return q.projectId===t.projectId;});
       if(sib.length>1&&sib.every(function(q){return q.status==='הושלם';})){confetti();toast('כל המשימות בפרויקט הושלמו! 🎉');}
     }
@@ -1415,7 +1424,9 @@ document.addEventListener('click',function(ev){
   }
   else if(a==='mytasks'){UI.taskPerson='me';UI.taskFilter='open';UI.view='tasks';window.scrollTo(0,0);render();}
   else if(a==='bell'){openBell();}
-  else if(a==='bellopen'){openRef(el.getAttribute('data-ref'));}
+  else if(a==='pdone'){UI.projDone=!UI.projDone;render();}
+  else if(a==='bellclear'){bellClear();}
+  else if(a==='bellopen'){var bid=el.getAttribute('data-id');bellDrop(bid);openRef(el.getAttribute('data-ref'));}
   else if(a==='reload'){location.reload();}
   else if(a==='signup'){doSignup();}
 });
