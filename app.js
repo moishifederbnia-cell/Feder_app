@@ -305,7 +305,7 @@ function purl(path){return PHOTO[path]||BLANK;}
 function isVid(p){return /\.(mp4|mov|webm|3gp|m4v)$/i.test(p||'');}
 function isPdf(p){return /\.pdf$/i.test(p||'');}
 function mediaTag(p,full){if(isPdf(p))return '<span class="pdft">PDF</span>';return isVid(p)?'<video src="'+purl(p)+'#t=0.1" preload="metadata" muted playsinline'+(full?' controls':'')+'></video>'+(full?'':'<span class="vplay">'+ico('play',26)+'</span>'):'<img loading="lazy" decoding="async" src="'+purl(p)+'" alt="">';}
-function isStaff(){return AUTH.role==='admin'||AUTH.role==='team';}
+function isStaff(){return AUTH.role==='admin'||AUTH.role==='team'||AUTH.role==='ceo';}
 function isAdmin(){return AUTH.role==='admin';}
 
 var I={play:'<polygon points="6 4 20 12 6 20 6 4" fill="currentColor"/>',
@@ -434,6 +434,7 @@ function vHome(){
   h+='<main class="wrap">';
   var doneN=S.tasks.filter(function(t){return t.status==='הושלם';}).length;
   h+='<div class="pull hrow"><div class="hstats"><button class="hstat" data-act="tasksby" data-v="open" aria-label="משימות שלא הושלמו"><b>'+openT.length+'</b><span>פתוחות</span></button><button class="hstat ok" data-act="tasksby" data-v="done" aria-label="משימות שהושלמו"><b>'+doneN+'</b><span>הושלמו</span></button></div></div>';
+  if(isCeo())h+='<button class="ceo-back" data-act="nav" data-v="ceo">'+ico('home',20)+'חזרה לדשבורד שלי</button>';
   h+='<div class="pgrid hacts">'+
      '<button class="pic" data-act="add" data-e="expense"><span class="pcirc hc h1">'+ico('receipt',28)+'</span><span class="plab">קבלה</span></button>'+
      '<button class="pic" data-act="add" data-e="task"><span class="pcirc hc h2">'+ico('plus',28)+'</span><span class="plab">משימה</span></button>'+
@@ -463,7 +464,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 50</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+((isAdmin()||isCeo())?'<button class="link" data-act="nav" data-v="ceo">'+(isCeo()?'הדשבורד שלי':'תצוגת מנכ״ל')+'</button>':'')+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 51</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -884,12 +885,12 @@ function vCalendar(){
 }
 
 /* users (admin) */
-var ROLES=[['pending','ממתין לאישור'],['admin','מנהל'],['team','צוות'],['accountant','רואה חשבון'],['client','לקוח'],['worker','עובד שטח (ערבית, משימות בלבד)']];
+var ROLES=[['pending','ממתין לאישור'],['admin','מנהל'],['team','צוות'],['ceo','מנכ״ל (דשבורד + הכול)'],['accountant','רואה חשבון'],['client','לקוח'],['worker','עובד שטח (ערבית, משימות בלבד)']];
 function vUsers(){
   var h=bandHtml('משתמשים והרשאות',null,{back:'חזרה'});
   h+='<main class="wrap" style="'+PULL+'">';
   if(isAdmin()&&S.team_members.length){
-    var staffU=S.profiles.filter(function(u){return u.role==='admin'||u.role==='team'||u.role==='worker';});
+    var staffU=S.profiles.filter(function(u){return u.role==='admin'||u.role==='team'||u.role==='ceo'||u.role==='worker';});
     h+='<div class="card" style="margin-bottom:12px"><b>צוות העבודה</b><div class="muted" style="margin:4px 0 8px">חבר כל אחד מהצוות למשתמש שלו כדי שיקבל התראות על משימות שמשויכות אליו.</div>'+
       S.team_members.map(function(m){return '<div class="fld" style="margin:8px 0 0"><label for="tm_'+esc(m.id)+'">'+esc(m.name)+(m.title?' · '+esc(m.title):'')+'</label><select id="tm_'+esc(m.id)+'" data-tm="'+esc(m.id)+'"><option value="">לא מחובר</option>'+staffU.map(function(u){return '<option value="'+esc(u.id)+'"'+(m.user_id===u.id?' selected':'')+'>'+esc(u.name||u.email||'')+'</option>';}).join('')+'</select><input class="ltr" type="tel" inputmode="tel" data-tmph="'+esc(m.id)+'" value="'+esc(m.phone||'')+'" placeholder="טלפון לבוט וואטסאפ (05...)" aria-label="טלפון של '+esc(m.name)+'" style="margin-top:6px"></div>';}).join('')+'</div>';
   }
@@ -958,7 +959,7 @@ function vWorker(){
     h+='<div style="text-align:center;margin:18px 0 6px"><button class="link" data-act="wshowdone">'+(WK.showDone?'إخفاء المنجزة':'عرض المهام المنجزة ('+done.length+')')+'</button></div>';
     if(WK.showDone)h+='<div class="stack">'+done.map(row).join('')+'</div>';
   }
-  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v50</div></main>';
+  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v51</div></main>';
 }
 function vAccountant(){
   var list=S.expenses.filter(expFilt);
@@ -1034,9 +1035,10 @@ function draw(){
   else if(AUTH.role==='accountant'){app.innerHTML=vAccountant();}
   else{
     var v=UI.view,h;
-    if(v==='projects')h=vProjects();else if(v==='project')h=vProject();else if(v==='tasks')h=vTasks();
+    if(v==='ceo'){app.innerHTML=vCeo();h=null;}
+    else if(v==='projects')h=vProjects();else if(v==='project')h=vProject();else if(v==='tasks')h=vTasks();
     else if(v==='suppliers')h=vSuppliers();else if(v==='expenses')h=vExpenses();else if(v==='calendar')h=vCalendar();else if(v==='report')h=vReport();else if(v==='users')h=vUsers();else h=vHome();
-    app.innerHTML=h+navHtml();
+    if(h!==null)app.innerHTML=h+navHtml();
   }
   if(isStaff()){gEnsure();gSyncBot();}
   navSync();
@@ -1345,6 +1347,134 @@ async function doImport(){
   await loadTable('suppliers');closeSheet();
 }
 
+/* ---------- CEO dashboard (role: ceo) ---------- */
+function isCeo(){return AUTH.role==='ceo';}
+function ceoProj(p){
+  var td=todayStr(),items=S.gantt_items.filter(function(g){return g.projectId===p.id;}).sort(function(a,b){return String(a.start_date).localeCompare(String(b.start_date));});
+  var tasks=S.tasks.filter(function(t){return t.projectId===p.id;});
+  var prog=0,cur=null,next=null,late=[];
+  if(items.length){
+    var w=0,sum=0;items.forEach(function(g){var d=Math.max(1,(Date.parse(g.end_date)-Date.parse(g.start_date))/864e5+1);w+=d;sum+=d*Math.min(100,Math.max(0,+g.pct||0));});
+    prog=w?sum/w:0;
+    var now=items.filter(function(g){return g.start_date<=td&&g.end_date>=td;});
+    cur=now.filter(function(g){return (+g.pct||0)<100;})[0]||now[0]||null;
+    next=items.filter(function(g){return g.start_date>td;})[0]||null;
+    late=items.filter(function(g){return g.end_date<td&&(+g.pct||0)<100;});
+  }else if(tasks.length){prog=100*tasks.filter(function(t){return t.status==='הושלם';}).length/tasks.length;}
+  var overdue=tasks.filter(function(t){return t.status!=='הושלם'&&t.due&&t.due<td;});
+  var waiting=tasks.filter(function(t){return t.status==='ממתין להחלטה';});
+  var block='';
+  if(late.length)block='מעכב: '+late[0].title;else if(overdue.length)block='מעכב: '+overdue[0].title;else if(waiting.length)block='מחכה להחלטה: '+waiting[0].title;
+  return {p:p,prog:Math.round(prog),cur:cur?cur.title:(late.length?late[0].title:''),next:next?next.title:'',late:!!(late.length||overdue.length),block:block};
+}
+function vCeo(){
+  var first=(AUTH.name||'').split(' ')[0],d=new Date();
+  var dstr='היום '+d.toLocaleDateString('he-IL',{weekday:'long'})+', '+d.getDate()+'.'+(d.getMonth()+1);
+  var h='<div class="ceo"><header class="ceo-band"><div class="wrap">'+
+    '<div class="ceo-top">'+(isAdmin()&&!isCeo()?'<span class="ceo-pill">תצוגה של המנכ״ל</span>':'<span></span>')+'<button class="ceo-pill ceo-applink" data-act="nav" data-v="home">לאפליקציה '+ico('back',16)+'</button></div>'+
+    '<h1>שלום'+(first?' '+esc(isCeo()?first:'אבי'):'')+'</h1><p>'+esc(dstr)+'</p>'+
+    '<button class="ceo-add" data-act="ceoadd">'+ico('plus',22)+'הוסף משימה</button></div></header><main class="wrap">';
+  var need=S.tasks.filter(function(t){return t.status==='ממתין להחלטה';}).slice(0,4);
+  if(need.length){
+    h+='<h2 class="ceo-h">צריך אותך</h2><div class="stack">'+need.map(function(t){
+      return '<div class="ceo-need"><div><b>'+esc(t.title)+'</b><span>'+esc(pname(t.projectId))+(t.notes?' · '+esc(String(t.notes).slice(0,60)):'')+'</span></div><button class="btn" data-act="ceoopen" data-id="'+esc(t.id)+'">צפה</button></div>';}).join('')+'</div>';
+  }
+  var act=S.projects.filter(function(p){return p.status!=='הסתיים'&&p.status!=='סיום';}).map(ceoProj).sort(function(a,b){return (b.late?1:0)-(a.late?1:0);});
+  h+='<h2 class="ceo-h">הפרויקטים</h2>';
+  h+=act.length?'<div class="stack">'+act.map(function(x){
+    return '<button class="ceo-proj" data-act="project" data-id="'+esc(x.p.id)+'"><div class="ceo-row"><b>'+esc(x.p.name)+'</b>'+(x.late?chip('warn','באיחור'):chip('ok','בזמן'))+'</div>'+
+      '<div class="ceo-bar" role="img" aria-label="התקדמות"><i class="'+(x.late?'late':'')+'" style="width:'+Math.max(3,x.prog)+'%"></i></div>'+
+      '<div class="ceo-sub">'+(x.cur?'<span>עכשיו: '+esc(x.cur)+'</span>':'')+(x.block?'<span class="blk">'+esc(x.block)+'</span>':(x.next?'<span class="muted">הבא: '+esc(x.next)+'</span>':''))+'</div></button>';}).join('')+'</div>':emptyBox('אין פרויקטים פעילים.');
+  var feed=S.docs.filter(function(x){return x.photo;}).sort(function(a,b){return (b.createdAt||0)-(a.createdAt||0);}).slice(0,4);
+  if(feed.length){
+    h+='<h2 class="ceo-h">מהשטח</h2><div class="stack">'+feed.map(function(x){
+      return '<button class="ceo-feed" data-act="photo" data-id="'+esc(x.photo)+'"><span class="ceo-th">'+mediaTag(x.photo)+'</span><span><b>'+esc(x.note||x.stage||'תיעוד')+'</b><span class="muted">'+esc(pname(x.projectId))+(x.date?' · '+esc(fdate(x.date)):'')+'</span></span></button>';}).join('')+'</div>';
+  }
+  h+='<button class="ceo-full" data-act="nav" data-v="home">כניסה לאפליקציה המלאה '+ico('back',18)+'</button></main></div>';
+  return h;
+}
+/* quick add: voice -> text -> Claude fills project / person / date */
+var CQ=null;
+function ceoQuickOpen(){CQ={text:'',projectId:'',assigneeId:'',due:'tomorrow',date:'',busy:false,listen:false,parsing:false,msg:''};ceoQuickDraw(true);}
+function ceoQuickDraw(first){
+  if(!CQ)return;var inp=$('#cq_t');if(inp)CQ.text=inp.value;
+  var chipB=function(act,val,label,on){return '<button type="button" class="ceo-chip" data-act="'+act+'" data-v="'+esc(val)+'" aria-pressed="'+(!!on)+'">'+esc(label)+'</button>';};
+  var projs=S.projects.filter(function(p){return p.status!=='הסתיים'&&p.status!=='סיום';});
+  var mem=S.team_members.slice();var me=myMember();
+  var html='<div class="scrim" data-act="ceoclose"></div><form class="sheet ceo-sheet" id="cqf" role="dialog" aria-modal="true" aria-labelledby="cq_h" novalidate onsubmit="return false"><h2 id="cq_h">משימה חדשה</h2>'+
+    '<label for="cq_t" class="ceo-lbl">מה צריך לעשות?</label><div class="ceo-inrow"><input id="cq_t" type="text" autocomplete="off" placeholder="אפשר גם להגיד בקול: לתאם חשמלאי בכהן למחר" value="'+esc(CQ.text)+'">'+
+    (speechOK()?'<button type="button" class="ceo-mic'+(CQ.listen?' on':'')+'" data-act="cqmic" aria-label="'+(CQ.listen?'עצור הקלטה':'הכתבה בקול')+'">'+micIco()+'</button>':'')+'</div>'+
+    '<div class="ceo-msg" aria-live="polite">'+(CQ.listen?'מקשיב… דבר עכשיו':CQ.parsing?'מבין מה אמרת…':esc(CQ.msg))+'</div>'+
+    (CQ.text&&!CQ.listen&&!CQ.parsing?'<button type="button" class="link" data-act="cqparse" style="align-self:flex-start;margin:-6px 0 4px">מלא את הפרטים לפי הטקסט</button>':'')+
+    '<div class="ceo-lbl">באיזה פרויקט?</div><div class="ceo-chips">'+projs.map(function(p){return chipB('cqproj',p.id,p.name,CQ.projectId===p.id);}).join('')+'</div>'+
+    '<div class="ceo-lbl">למי?</div><div class="ceo-chips">'+mem.map(function(m){return chipB('cqwho',m.id,(me&&me.id===m.id)?'לעצמי':m.name,CQ.assigneeId===m.id);}).join('')+'</div>'+
+    '<div class="ceo-lbl">עד מתי?</div><div class="ceo-chips">'+chipB('cqdue','today','היום',CQ.due==='today')+chipB('cqdue','tomorrow','מחר',CQ.due==='tomorrow')+chipB('cqdue','date','תאריך…',CQ.due==='date')+chipB('cqdue','none','בלי תאריך',CQ.due==='none')+'</div>'+
+    (CQ.due==='date'?'<input type="date" id="cq_d" class="ceo-date" value="'+esc(CQ.date)+'" aria-label="תאריך">':'')+
+    '<div id="ferr" class="ferr" role="alert"></div>'+
+    '<button type="button" class="ceo-save" data-act="cqsave"'+(CQ.busy?' disabled':'')+'>'+(CQ.busy?'שומר…':'שמור ושלח')+'</button></form>';
+  $('#layer').innerHTML=html;if(first)pushOverlay('sheet');
+  var i2=$('#cq_t');if(i2){i2.addEventListener('input',function(){CQ.text=i2.value;});if(first)setTimeout(function(){i2.focus();},50);}
+  var dd=$('#cq_d');if(dd)dd.addEventListener('change',function(){CQ.date=dd.value;});
+}
+function micIco(){return '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';}
+function speechOK(){return !!(window.SpeechRecognition||window.webkitSpeechRecognition);}
+var CQREC=null;
+function ceoMic(){
+  if(!CQ)return;
+  if(CQ.listen&&CQREC){try{CQREC.stop();}catch(e){}return;}
+  var R=window.SpeechRecognition||window.webkitSpeechRecognition;if(!R)return;
+  var r=new R();CQREC=r;r.lang='he-IL';r.interimResults=true;r.continuous=false;
+  var finalT='';
+  r.onresult=function(ev){var s='';for(var i=0;i<ev.results.length;i++){s+=ev.results[i][0].transcript;}finalT=s;var el=$('#cq_t');if(el)el.value=s;CQ.text=s;};
+  r.onerror=function(ev){CQ.listen=false;CQ.msg=ev.error==='not-allowed'?'צריך לאשר גישה למיקרופון בהגדרות.':'לא שמעתי טוב, נסה שוב.';ceoQuickDraw();};
+  r.onend=function(){CQ.listen=false;CQREC=null;if(finalT){CQ.text=finalT;ceoParse();}else ceoQuickDraw();};
+  CQ.listen=true;CQ.msg='';ceoQuickDraw();
+  try{r.start();}catch(e){CQ.listen=false;ceoQuickDraw();}
+}
+var PARSE_URL=SUPABASE_URL+'/functions/v1/parse-task';
+async function ceoParse(){
+  if(!CQ||!CQ.text)return;CQ.parsing=true;CQ.msg='';ceoQuickDraw();
+  try{
+    var s=await sb.auth.getSession();var tok=s&&s.data&&s.data.session&&s.data.session.access_token;
+    var me=myMember();
+    var body={text:CQ.text,today:todayStr(),
+      projects:S.projects.filter(function(p){return p.status!=='הסתיים'&&p.status!=='סיום';}).map(function(p){return {id:p.id,name:p.name};}),
+      team:S.team_members.map(function(m){return {id:m.id,name:m.name,me:!!(me&&me.id===m.id)};})};
+    var res=await fetch(PARSE_URL,{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+tok,'apikey':SUPABASE_KEY},body:JSON.stringify(body)});
+    if(!res.ok)throw new Error(res.status===404?'nofn':'http');
+    var j=await res.json();if(!CQ)return;
+    if(j.title)CQ.text=j.title;
+    if(j.projectId&&byId('projects',j.projectId))CQ.projectId=j.projectId;
+    if(j.assigneeId&&byId('team_members',j.assigneeId))CQ.assigneeId=j.assigneeId;
+    if(j.due){var td=todayStr(),tm=ymd(new Date(Date.now()+864e5));if(j.due===td)CQ.due='today';else if(j.due===tm)CQ.due='tomorrow';else{CQ.due='date';CQ.date=j.due;}}
+    CQ.msg='מילאתי לפי מה שאמרת. בדוק ולחץ שמור.';
+  }catch(e){if(CQ)CQ.msg=(e&&e.message==='nofn')?'הזיהוי האוטומטי עוד לא הופעל. בחר את הפרטים בלחיצות.':'לא הצלחתי לזהות אוטומטית. בחר את הפרטים בלחיצות.';}
+  if(CQ){CQ.parsing=false;ceoQuickDraw();}
+}
+async function ceoQuickSave(){
+  if(!CQ||CQ.busy)return;var t=($('#cq_t')||{}).value||CQ.text;t=String(t||'').trim();
+  if(!t){ferr('כתוב או אמור מה צריך לעשות.');return;}
+  if(!CQ.projectId){ferr('בחר פרויקט.');return;}
+  var due=CQ.due==='today'?todayStr():CQ.due==='tomorrow'?ymd(new Date(Date.now()+864e5)):CQ.due==='date'?(($('#cq_d')||{}).value||CQ.date||null):null;
+  CQ.busy=true;ceoQuickDraw();
+  var id=(window.crypto&&crypto.randomUUID)?crypto.randomUUID():null;
+  var data={title:t,projectId:CQ.projectId,assigneeId:CQ.assigneeId||null,due:due,status:'לביצוע',area:'כללי',kind:'משימה'};
+  if(id)data.id=id;
+  try{
+    var r=await sb.from('tasks').insert(toRow(data)).select('id').maybeSingle();if(r.error)throw r.error;
+    var tid=(r.data&&r.data.id)||id;
+    var asg=CQ.assigneeId?byId('team_members',CQ.assigneeId):null;
+    if(asg){
+      if(asg.user_id&&asg.user_id!==AUTH.uid){
+        var wprof=S.profiles.filter(function(u){return u.id===asg.user_id;})[0],isW=wprof&&wprof.role==='worker';
+        try{await sb.from('reminders').insert({user_id:asg.user_id,ref:'assign:'+tid+':'+Date.now(),title:isW?'مهمة جديدة لك':'משימה חדשה בשבילך',body:t+' · '+pname(CQ.projectId),remind_at:new Date().toISOString()});}catch(e3){}
+        if(isW&&tid)translateRow('tasks',tid);
+      }else if(!asg.user_id){setTimeout(function(){toast(asg.name+' עוד לא מחובר/ת למשתמש, לא תישלח התראה.');},400);}
+    }
+    await loadTable('tasks');
+    CQ=null;closeSheet();toast('המשימה נשמרה ✓');
+  }catch(e){CQ.busy=false;ceoQuickDraw();ferr('לא נשמר: '+(e&&e.message||'שגיאה'));}
+}
 /* ---------- events ---------- */
 document.addEventListener('click',function(ev){
   var el=ev.target.closest('[data-act]');if(!el)return;
@@ -1424,6 +1554,15 @@ document.addEventListener('click',function(ev){
   }
   else if(a==='mytasks'){UI.taskPerson='me';UI.taskFilter='open';UI.view='tasks';window.scrollTo(0,0);render();}
   else if(a==='bell'){openBell();}
+  else if(a==='ceoadd'){ceoQuickOpen();}
+  else if(a==='ceoclose'){CQ=null;if(CQREC){try{CQREC.abort();}catch(e){}}closeSheet();}
+  else if(a==='ceoopen'){openRef('task:'+id);}
+  else if(a==='cqmic'){ceoMic();}
+  else if(a==='cqparse'){var ti=$('#cq_t');if(ti)CQ.text=ti.value;ceoParse();}
+  else if(a==='cqproj'){CQ.projectId=el.getAttribute('data-v');ceoQuickDraw();}
+  else if(a==='cqwho'){var wv=el.getAttribute('data-v');CQ.assigneeId=CQ.assigneeId===wv?'':wv;ceoQuickDraw();}
+  else if(a==='cqdue'){CQ.due=el.getAttribute('data-v');ceoQuickDraw();}
+  else if(a==='cqsave'){ceoQuickSave();}
   else if(a==='pdone'){UI.projDone=!UI.projDone;render();}
   else if(a==='bellclear'){bellClear();}
   else if(a==='bellopen'){var bid=el.getAttribute('data-id');bellDrop(bid);openRef(el.getAttribute('data-ref'));}
@@ -1548,6 +1687,7 @@ async function boot(session){
   AUTH.name=pr.name||'';AUTH.role=pr.role||'pending';
   if(AUTH.role==='pending'){AUTH.state='pending';render();return;}
   AUTH.state='app';
+  if(AUTH.role==='ceo'&&!PENDING_OPEN)UI.view='ceo';
   if(AUTH.role!=='worker')snapLoad();
   render();
   if(AUTH.role==='worker'){await loadWorker();runPendingOpen();return;}
