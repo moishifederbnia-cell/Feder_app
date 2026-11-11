@@ -1,6 +1,6 @@
 // parse-task: turns one spoken/typed sentence into a task (title, project, person, date).
 // Used by the CEO "הוסף משימה" button. Uses the same ANTHROPIC_API_KEY secret as the bot.
-// Create it in Supabase as a NEW function named exactly: parse-task   (keep "Verify JWT" ON)
+// Create it in Supabase as a NEW function named exactly: parse-task   (turn "Verify JWT" OFF, like the bot; the code checks the user itself)
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const CORS = {
