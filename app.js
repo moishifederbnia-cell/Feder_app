@@ -1448,7 +1448,7 @@ async function ceoParse(){
     if(j.assigneeId&&byId('team_members',j.assigneeId))CQ.assigneeId=j.assigneeId;
     if(j.due){var td=todayStr(),tm=ymd(new Date(Date.now()+864e5));if(j.due===td)CQ.due='today';else if(j.due===tm)CQ.due='tomorrow';else{CQ.due='date';CQ.date=j.due;}}
     CQ.msg='מילאתי לפי מה שאמרת. בדוק ולחץ שמור.';
-  }catch(e){if(CQ)CQ.msg=(e&&e.message==='nofn')?'הזיהוי האוטומטי עוד לא הופעל. בחר את הפרטים בלחיצות.':'לא הצלחתי לזהות אוטומטית. בחר את הפרטים בלחיצות.';}
+  }catch(e){if(CQ)CQ.msg=(e&&(e.message==='nofn'||e.name==='TypeError'))?'הזיהוי האוטומטי עוד לא הופעל. בחר את הפרטים בלחיצות.':'לא הצלחתי לזהות אוטומטית. בחר את הפרטים בלחיצות.';}
   if(CQ){CQ.parsing=false;ceoQuickDraw();}
 }
 async function ceoQuickSave(){
