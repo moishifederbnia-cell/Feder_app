@@ -30,6 +30,6 @@ jobs:
               supabase/bot-parts/part5.txt supabase/bot-parts/part6.txt supabase/bot-parts/part7.txt > supabase/functions/smooth-worker/index.ts
           wc -c supabase/functions/smooth-worker/index.ts
       - name: Deploy smooth-worker (WhatsApp bot)
-        run: supabase functions deploy smooth-worker --project-ref "$PROJECT_REF" --no-verify-jwt
+        run: supabase functions deploy smooth-worker --project-ref "$PROJECT_REF" --no-verify-jwt --yes
       - name: Deploy parse-task (voice task for the CEO)
-        run: supabase functions deploy parse-task --project-ref "$PROJECT_REF" --no-verify-jwt
+        run: supabase functions deploy parse-task --project-ref "$PROJECT_REF" --no-verify-jwt --yes
