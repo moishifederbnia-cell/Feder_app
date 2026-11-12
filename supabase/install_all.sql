@@ -1,4 +1,95 @@
--- התקנה מרוכזת לגרסה 52 + בוט 12.11.26: part21 עד part29. בטוח להרצה חוזרת. להדביק הכול ב-SQL Editor וללחוץ Run.
+-- התקנה מרוכזת: part14 עד part29 (אפליקציה 52 + בוט 12.11.26). בטוח להרצה חוזרת – אפשר להריץ גם אם חלק כבר הורץ.
+-- Supabase > SQL Editor > New query > להדביק הכול > Run
+
+-- ===================== part14_arabic.sql =====================
+alter table projects add column if not exists name_ar text;
+alter table projects add column if not exists address_ar text;
+alter table tasks add column if not exists notes_ar text;
+
+drop function if exists worker_tasks();
+create or replace function worker_tasks()
+returns table(id uuid, title text, title_ar text, notes text, notes_ar text, status text, due date, project_id uuid, project_name text, project_name_ar text, assignee_id uuid, assignee_name text, mine boolean)
+language sql security definer stable set search_path = public as
+$$ select t.id, t.title, t.title_ar, t.notes, t.notes_ar, t.status, t.due, t.project_id, p.name, p.name_ar, t.assignee_id,
+          coalesce(m.name_ar, m.name),
+          (m.user_id = auth.uid())
+   from tasks t
+   left join projects p on p.id = t.project_id
+   left join team_members m on m.id = t.assignee_id
+   where exists (select 1 from profiles me where me.id = auth.uid() and me.role = 'worker') $$;
+
+drop function if exists worker_projects();
+create or replace function worker_projects()
+returns table(id uuid, name text, name_ar text, status text, address text, address_ar text)
+language sql security definer stable set search_path = public as
+$$ select p.id, p.name, p.name_ar, p.status, p.address, p.address_ar from projects p
+   where exists (select 1 from profiles me where me.id = auth.uid() and me.role = 'worker') $$;
+
+grant execute on function worker_tasks() to authenticated;
+grant execute on function worker_projects() to authenticated;
+
+-- ===================== part15_delete_user.sql =====================
+create or replace function admin_delete_user(uid uuid)
+returns void
+language plpgsql security definer set search_path = public, auth as
+$$
+begin
+  if not exists (select 1 from profiles where id = auth.uid() and role = 'admin') then
+    raise exception 'not allowed';
+  end if;
+  if uid = auth.uid() then
+    raise exception 'cannot delete yourself';
+  end if;
+  update team_members set user_id = null where user_id = uid;
+  delete from client_projects where user_id = uid;
+  delete from push_subscriptions where user_id = uid;
+  update messages set sender = null where sender = uid;
+  delete from profiles where id = uid;
+  delete from auth.users where id = uid;
+end
+$$;
+grant execute on function admin_delete_user(uuid) to authenticated;
+
+-- ===================== part16_status.sql =====================
+update projects set status = 'הסתיים' where status = 'סיום';
+
+-- ===================== part17_task_time.sql =====================
+alter table tasks add column if not exists due_time text;
+
+-- ===================== part18_task_media_meeting.sql =====================
+alter table tasks add column if not exists due_time text;
+alter table tasks add column if not exists kind text;
+alter table tasks add column if not exists event_id uuid;
+alter table tasks add column if not exists photo text;
+
+-- ===================== part19_worker_media.sql =====================
+drop function if exists worker_tasks();
+create or replace function worker_tasks()
+returns table(id uuid, title text, title_ar text, notes text, notes_ar text, status text, due date, due_time text, kind text, photo text, project_id uuid, project_name text, project_name_ar text, assignee_id uuid, assignee_name text, mine boolean)
+language sql security definer stable set search_path = public as
+$$ select t.id, t.title, t.title_ar, t.notes, t.notes_ar, t.status, t.due, t.due_time, t.kind, t.photo, t.project_id, p.name, p.name_ar, t.assignee_id,
+          coalesce(m.name_ar, m.name),
+          (m.user_id = auth.uid())
+   from tasks t
+   left join projects p on p.id = t.project_id
+   left join team_members m on m.id = t.assignee_id
+   where t.status <> 'ממתין להחלטה'
+     and exists (select 1 from profiles me where me.id = auth.uid() and me.role = 'worker') $$;
+grant execute on function worker_tasks() to authenticated;
+
+create or replace function is_task_photo(n text)
+returns boolean
+language sql security definer stable set search_path = public as
+$$ select exists (select 1 from profiles me where me.id = auth.uid() and me.role = 'worker')
+      and exists (select 1 from tasks t where t.photo = n and t.status <> 'ממתין להחלטה') $$;
+grant execute on function is_task_photo(text) to authenticated;
+
+drop policy if exists "worker task photos" on storage.objects;
+create policy "worker task photos" on storage.objects for select
+  using (bucket_id = 'photos' and is_task_photo(name));
+
+-- ===================== part20_task_area.sql =====================
+alter table tasks add column if not exists area text;
 
 -- ===================== part21_order_docs.sql =====================
 alter table supplier_docs add column if not exists order_id uuid references orders(id) on delete cascade;

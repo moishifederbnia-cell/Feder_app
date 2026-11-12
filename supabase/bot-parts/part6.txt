@@ -204,7 +204,52 @@ async function runCron(force?: string) {
       }
     }
   }
+  // weekly report (Thursday afternoon) → staff and CEO only, never clients/workers
+  if ((dow === 4 && hh === WEEKLY_HOUR) || force === "weekly") {
+    const k = "weekly:" + today;
+    if (force === "weekly" || !(await stateGet(k))) {
+      await stateSet(k, "1");
+      const txt = await weeklyReport(today, pm);
+      for (const p of people.filter((x) => x.urole === "admin" || x.urole === "team" || x.urole === "ceo")) {
+        await waSend(p.intl, txt, { name: TPL.update, lang: "he", params: ["סיכום שבועי", "הדוח השבועי של כל הפרויקטים מוכן"], payload: "more" });
+        out.push("weekly→" + p.name);
+      }
+    }
+  }
   return out;
+}
+const WEEKLY_HOUR = Number(Deno.env.get("WEEKLY_HOUR") || 14);
+async function weeklyReport(today: string, pm: { list: any[]; byId: Record<string, any> }) {
+  const from = addDays(today, -6), next7 = addDays(today, 7);
+  const { data: done } = await db.from("tasks").select("title,project_id,done_at").eq("status", "הושלם").gte("done_at", from + "T00:00:00");
+  const { data: open } = await db.from("tasks").select("title,project_id,due,status").neq("status", "הושלם");
+  const { data: exp } = await db.from("expenses").select("amount,project_id,date").gte("date", from);
+  const lines: string[] = ["📊 *סיכום שבועי – פדר בניה*", fmtD(from) + "–" + fmtD(today), ""];
+  let totalExp = 0;
+  for (const p of pm.list.filter((x: any) => x.status !== "הסתיים")) {
+    const d = (done || []).filter((t: any) => t.project_id === p.id);
+    const o = (open || []).filter((t: any) => t.project_id === p.id);
+    const late = o.filter((t: any) => t.due && t.due < today);
+    const nextW = o.filter((t: any) => t.due && t.due >= today && t.due <= next7);
+    const dec = o.filter((t: any) => t.status === "ממתין להחלטה");
+    const e = (exp || []).filter((x: any) => x.project_id === p.id).reduce((s: number, x: any) => s + (Number(x.amount) || 0), 0);
+    totalExp += e;
+    if (!d.length && !o.length && !e) continue;
+    lines.push("🏗️ *" + p.name + "*");
+    if (p.sched_start) {
+      const sb = await schedBehind(p, today);
+      lines.push("שבוע " + sb.cw + " בגאנט" + (sb.late.length ? " · ⚠️ מעכב: " + sb.late.slice(0, 3).join(", ") : " · בזמן ✅"));
+    }
+    if (d.length) lines.push("✔️ בוצעו " + d.length + ": " + d.slice(0, 5).map((t: any) => t.title).join(", ") + (d.length > 5 ? "…" : ""));
+    if (late.length) lines.push("⚠️ באיחור " + late.length + ": " + late.slice(0, 4).map((t: any) => t.title).join(", "));
+    if (dec.length) lines.push("❓ ממתין להחלטה: " + dec.slice(0, 3).map((t: any) => t.title).join(", "));
+    if (nextW.length) lines.push("📅 שבוע הבא: " + nextW.slice(0, 4).map((t: any) => t.title).join(", "));
+    if (e) lines.push("💰 הוצאות השבוע: ₪" + num(e));
+    lines.push("");
+  }
+  if (totalExp) lines.push("סה״כ הוצאות השבוע: ₪" + num(totalExp));
+  lines.push("שבת שלום 🙏");
+  return lines.join("\n").trim();
 }
 
 // ---------- buttons (template quick replies) ----------

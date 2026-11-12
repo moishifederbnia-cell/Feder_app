@@ -475,3 +475,7 @@ div.rmain{cursor:default}.rrep{width:100%;font-size:12px}
 }
 @media print{body{padding-inline-start:0!important}}
 @media print{.sfull{background:#fff!important}}
+/* rain alert */
+.wxb{display:flex;gap:12px;align-items:flex-start;background:var(--info-bg);color:var(--info-ink);border-radius:16px;padding:12px 14px;margin:12px 0}
+.wxb .wxi{font-size:28px;line-height:1}.wxb b{font-size:15px}.wxb>div>div{font-size:14px;margin-top:2px}
+@media (min-width:1024px){.wxb{max-width:760px}}

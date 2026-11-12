@@ -454,6 +454,7 @@ function vHome(){
   h+='<main class="wrap">';
   var doneN=S.tasks.filter(function(t){return t.status==='הושלם';}).length;
   h+='<div class="pull hrow"><div class="hstats"><button class="hstat" data-act="tasksby" data-v="open" aria-label="משימות שלא הושלמו"><b>'+openT.length+'</b><span>פתוחות</span></button><button class="hstat ok" data-act="tasksby" data-v="done" aria-label="משימות שהושלמו"><b>'+doneN+'</b><span>הושלמו</span></button></div></div>';
+  h+=wxBanner();
   if(isCeo())h+='<button class="ceo-back" data-act="nav" data-v="ceo">'+ico('home',20)+'חזרה לדשבורד שלי</button>';
   h+='<div class="pgrid hacts">'+
      '<button class="pic" data-act="add" data-e="expense"><span class="pcirc hc h1">'+ico('receipt',28)+'</span><span class="plab">קבלה</span></button>'+
@@ -468,7 +469,7 @@ function vHome(){
   var mm=myMember();
   if(mm){var myOpen=openT.filter(function(t){return hasAsg(t,mm.id);}).length;
     h+='<button class="card" style="margin-top:12px;width:100%;text-align:start;display:flex;justify-content:space-between;align-items:center;cursor:pointer" data-act="mytasks"><span><b>'+myOpen+'</b> משימות פתוחות בשבילך</span><span class="link">הצג</span></button>';}
-  if(!gWasConnected()&&isStaff())h+='<div class="card" style="margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:10px"><span><b>היומן האישי שלך</b><br><span class="muted">חבר את יומן הגוגל שלך – הפגישות שלך ייכנסו אליו, ותקבל הזמנות לפגישות משותפות.</span></span><button class="btn btn-navy" data-act="gconnect">חבר את היומן שלי</button></div>';
+  if(!gWasConnected()&&isStaff())h+='<div class="card" style="margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:10px"><span><b>היומן האישי שלך</b><br><span class="muted">חבר את יומן הגוגל שלך – הפגישות שלך ייכנסו אליו, ותקבל הזמנות לפגישות משותפות.</span></span><button class="btn btn-navy" style="white-space:nowrap;flex-shrink:0" data-act="gconnect">חבר יומן</button></div>';
   if(!pushOn()&&pushSupported())h+='<div class="card" style="margin-top:12px"><b>התראות לטלפון</b><div class="muted" style="margin:4px 0 8px">כדי לקבל תזכורות לפגישות ולמשימות גם כשהאפליקציה סגורה.</div><button class="btn btn-accent" data-act="pushon">הפעל התראות</button><div class="muted" id="pushst" style="margin-top:6px"></div></div>';
   if(late.length||dueT.length||dueN.length){
     h+='<div class="card" style="margin-top:12px;border-inline-start:5px solid var(--accent,#F7941D)"><b>תזכורות</b><div style="margin-top:6px;line-height:1.7">'+
@@ -485,7 +486,7 @@ function vHome(){
   if(S.projects.length){h+='<div class="stack">'+sortedProjects().map(projectCard).join('')+'</div>';}
   else h+=emptyBox('עוד אין פרויקטים. מתחילים מהראשון.',addBtn('project','פרויקט חדש'));
   var pend=S.profiles.filter(function(p){return p.role==='pending';}).length;
-  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+((isAdmin()||isCeo())?'<button class="link" data-act="nav" data-v="ceo">'+(isCeo()?'הדשבורד שלי':'תצוגת מנכ״ל')+'</button>':'')+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 52</div>';
+  h+='<div style="text-align:center;margin:26px 0 8px;display:flex;justify-content:center;gap:24px">'+((isAdmin()||isCeo())?'<button class="link" data-act="nav" data-v="ceo">'+(isCeo()?'הדשבורד שלי':'תצוגת מנכ״ל')+'</button>':'')+(isAdmin()?'<button class="link" data-act="nav" data-v="users">משתמשים והרשאות'+(pend?' ('+pend+' ממתינים)':'')+'</button>':'')+'<button class="link" data-act="logout">התנתקות</button></div><div class="muted" style="text-align:center">גרסה 53</div>';
   return h+'</main>';
 }
 function vProjects(){
@@ -917,7 +918,7 @@ function vUsers(){
     h+='<div class="card" style="margin-bottom:12px"><b>צוות העבודה</b><div class="muted" style="margin:4px 0 8px">חבר כל אחד מהצוות למשתמש שלו כדי שיקבל התראות על משימות שמשויכות אליו.</div>'+
       S.team_members.map(function(m){return '<div class="fld" style="margin:8px 0 0"><label for="tm_'+esc(m.id)+'">'+esc(m.name)+(m.title?' · '+esc(m.title):'')+'</label><select id="tm_'+esc(m.id)+'" data-tm="'+esc(m.id)+'"><option value="">לא מחובר</option>'+staffU.map(function(u){return '<option value="'+esc(u.id)+'"'+(m.user_id===u.id?' selected':'')+'>'+esc(u.name||u.email||'')+'</option>';}).join('')+'</select><input class="ltr" type="tel" inputmode="tel" data-tmph="'+esc(m.id)+'" value="'+esc(m.phone||'')+'" placeholder="טלפון לבוט וואטסאפ (05...)" aria-label="טלפון של '+esc(m.name)+'" style="margin-top:6px"><input class="ltr" type="email" data-tmem="'+esc(m.id)+'" value="'+esc(m.email||'')+'" placeholder="ג׳ימייל (להזמנות ביומן גוגל)" aria-label="ג׳ימייל של '+esc(m.name)+'" style="margin-top:6px"></div>';}).join('')+'</div>';
   }
-  if(isAdmin())h+='<div class="card" style="margin-bottom:12px"><b>בדיקת הבוט</b><div class="muted" style="margin:4px 0 8px">שולח עכשיו לכל הצוות את ההודעה, בלי לחכות לשעה הקבועה (7:00 / 17:00).</div><div class="grid2"><button class="btn btn-line" data-act="crontest" data-v="morning">שלח בוקר טוב עכשיו</button><button class="btn btn-line" data-act="crontest" data-v="evening">שלח סיכום יום עכשיו</button></div></div>';
+  if(isAdmin())h+='<div class="card" style="margin-bottom:12px"><b>בדיקת הבוט</b><div class="muted" style="margin:4px 0 8px">שולח עכשיו לכל הצוות את ההודעה, בלי לחכות לשעה הקבועה (7:00 / 17:00).</div><div class="grid2"><button class="btn btn-line" data-act="crontest" data-v="morning">שלח בוקר טוב עכשיו</button><button class="btn btn-line" data-act="crontest" data-v="evening">שלח סיכום יום עכשיו</button><button class="btn btn-line" style="grid-column:1/-1" data-act="crontest" data-v="weekly">שלח דוח שבועי עכשיו</button></div></div>';
   if(isAdmin())h+='<div class="card" style="margin-bottom:12px"><b>תרגום לערבית</b><div class="muted" style="margin:4px 0 8px">פרויקטים ומשימות מתורגמים לערבית אוטומטית בכל שמירה. כפתור זה מתרגם את מה שכבר קיים.</div><button class="btn btn-accent" data-act="trall">תרגם הכול לערבית</button></div>';
   h+='<div class="card muted" style="margin-bottom:12px">מי שנרשם ממתין עד שתבחר לו תפקיד. צוות רואה ועורך הכול. רואה חשבון רואה הוצאות בלבד. לקוח רואה רק את האזור האישי של הפרויקטים ששייכת לו. אדריכלית רואה רק את התוכניות, המסמכים והמשימות שלה בפרויקטים ששייכת לה.</div><div class="stack">';
   S.profiles.slice().sort(function(a,b){return (a.role==='pending'?0:1)-(b.role==='pending'?0:1);}).forEach(function(u){
@@ -983,7 +984,7 @@ function vWorker(){
     h+='<div style="text-align:center;margin:18px 0 6px"><button class="link" data-act="wshowdone">'+(WK.showDone?'إخفاء المنجزة':'عرض المهام المنجزة ('+done.length+')')+'</button></div>';
     if(WK.showDone)h+='<div class="stack">'+done.map(row).join('')+'</div>';
   }
-  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v52</div></main>';
+  return h+'<div style="text-align:center;margin:26px 0 8px"><button class="link" data-act="logout">تسجيل الخروج</button></div><div class="muted" style="text-align:center;font-size:12px">v53</div></main>';
 }
 
 /* client (restricted) view */
@@ -1369,6 +1370,47 @@ async function doImport(){
   await loadTable('suppliers');closeSheet();
 }
 
+/* ---------- rain alert (Open-Meteo, free, no key) ---------- */
+var WX={list:[],at:0,busy:false};
+function wxPlace(p){var a=String(p.address||'').trim();if(!a)return '';var parts=a.split(/[,،]/).map(function(x){return x.trim();}).filter(Boolean);return parts[parts.length-1]||a;}
+async function wxGeo(q){
+  var key='feder_geo_'+q,c=lsGet(key);if(c){try{return JSON.parse(c);}catch(e){}}
+  var tries=[q].concat(q.split(/\s+/).length>1?[q.split(/\s+/).slice(-1)[0],q.split(/\s+/).slice(-2).join(' ')]:[]);
+  for(var i=0;i<tries.length;i++){
+    try{var r=await fetch('https://geocoding-api.open-meteo.com/v1/search?count=1&language=he&countryCode=IL&name='+encodeURIComponent(tries[i]));var j=await r.json();
+      if(j&&j.results&&j.results[0]){var g={lat:j.results[0].latitude,lon:j.results[0].longitude,name:j.results[0].name};lsSet(key,JSON.stringify(g));return g;}}catch(e){}
+  }
+  var dflt={lat:32.08,lon:34.78,name:'מרכז'};lsSet(key,JSON.stringify(dflt));return dflt;
+}
+async function wxCheck(){
+  if(WX.busy||Date.now()-WX.at<3*3600*1000||!(isStaff()||isCeo()))return;
+  WX.busy=true;
+  try{
+    var ps=S.projects.filter(function(p){return p.status!=='הסתיים'&&p.status!=='סיום';});
+    if(!ps.length){WX.busy=false;return;}
+    var byLoc={};
+    for(var i=0;i<ps.length;i++){var g=await wxGeo(wxPlace(ps[i])||'תל אביב');var k=g.lat.toFixed(2)+','+g.lon.toFixed(2);(byLoc[k]=byLoc[k]||{g:g,ps:[]}).ps.push(ps[i].name);}
+    var out=[];
+    for(var kk in byLoc){var L=byLoc[kk];
+      var r=await fetch('https://api.open-meteo.com/v1/forecast?latitude='+L.g.lat+'&longitude='+L.g.lon+'&daily=precipitation_probability_max,precipitation_sum&timezone=Asia%2FJerusalem&forecast_days=3');
+      var j=await r.json();if(!j||!j.daily)continue;
+      for(var d=0;d<3;d++){var pr=j.daily.precipitation_probability_max[d],mm=j.daily.precipitation_sum[d];
+        if(pr>=50){out.push({day:d,date:j.daily.time[d],pct:pr,mm:mm,place:L.g.name,ps:L.ps});}}
+    }
+    out.sort(function(a,b){return a.day-b.day||b.pct-a.pct;});
+    WX.list=out;WX.at=Date.now();
+    var tm=out.filter(function(x){return x.day===1&&x.pct>=60;})[0],key='feder_wxpush_'+todayStr();
+    if(tm&&!lsGet(key)){lsSet(key,'1');try{await sb.from('reminders').insert({user_id:AUTH.uid,ref:'wx:'+todayStr(),title:'🌧️ צפוי גשם מחר ('+tm.pct+'%)',body:tm.ps.join(', ')+' · כדאי לבדוק עבודות חוץ, יציקות, איטום וצבע',remind_at:new Date().toISOString()});}catch(e){}}
+    render();
+  }catch(e){}
+  WX.busy=false;
+}
+function wxBanner(){
+  if(!WX.list.length)return '';
+  var dn=['היום','מחר','מחרתיים'],seen={},rows=[];
+  WX.list.forEach(function(x){var k=x.day+'|'+x.ps.join();if(seen[k])return;seen[k]=1;rows.push('<div><b>'+dn[x.day]+'</b> · '+x.pct+'% גשם'+(x.mm?' ('+Math.round(x.mm)+' מ״מ)':'')+' · '+esc(x.ps.join(', '))+'</div>');});
+  return '<div class="wxb" role="status"><span class="wxi" aria-hidden="true">🌧️</span><div><b>צפוי גשם</b>'+rows.slice(0,4).join('')+'<div class="muted">כדאי לבדוק עבודות חוץ, יציקות, איטום וצבע.</div></div></div>';
+}
 /* ---------- client personal area ---------- */
 function clientProjects(){return sortedProjects().filter(function(p){return S.client_projects.some(function(c){return c.user_id===AUTH.uid&&c.projectId===p.id;})||AUTH.role==='client'||AUTH.role==='architect';});}
 function cSec(id,title,body){return '<section class="csec" id="c_'+id+'"><h2>'+title+'</h2>'+body+'</section>';}
@@ -1699,7 +1741,7 @@ async function sSetSave(){
   if(!st){ferr('בחר תאריך התחלה.');return;}
   form.busy=true;var tpl=form.tpl,pid=form.id;
   var r=await saveRow('projects',{sched_start:st,sched_weeks:Math.max(1,Math.min(30,wk)),sched_goal:goal||null},pid);
-  if(r.error){form.busy=false;ferr('לא נשמר. ודא שהרצת את עדכון ה-SQL של גרסה 52.');return;}
+  if(r.error){form.busy=false;ferr('לא נשמר. ודא שהרצת את עדכון ה-SQL של גרסה 53.');return;}
   if(tpl===1){try{await sTemplate(pid);}catch(e){}}
   await Promise.all([loadTable('projects'),loadTable('sched_rows'),loadTable('resp_items')]);
   closeSheet();if(tpl===0||tpl===1){UI.view='sched';UI.schedTab='time';window.scrollTo(0,0);render();}
@@ -1752,7 +1794,7 @@ async function sRowSave(){
   var row={project_id:form.pid,title:title,section:$('#sr_s').value,assignee_id:$('#sr_a').value||null,targets:targets,actual:parseInt($('#sr_act').value,10)||0,done:$('#sr_d').checked,urgent:$('#sr_u').checked,milestone:$('#sr_m').checked,note:$('#sr_n').value.trim()||null,updated_at:new Date().toISOString()};
   if(!form.id)row.sort=S.sched_rows.filter(function(x){return x.projectId===form.pid;}).length;
   form.busy=true;var r=await saveRow('sched_rows',row,form.id);
-  if(r.error){form.busy=false;ferr('לא נשמר. ודא שהרצת את עדכון ה-SQL של גרסה 52.');return;}
+  if(r.error){form.busy=false;ferr('לא נשמר. ודא שהרצת את עדכון ה-SQL של גרסה 53.');return;}
   await loadTable('sched_rows');closeSheet();
 }
 async function sRowDel(){
@@ -1812,6 +1854,7 @@ function vCeo(){
     '<div class="ceo-top">'+(isAdmin()&&!isCeo()?'<span class="ceo-pill">תצוגה של המנכ״ל</span>':'<span></span>')+'<button class="ceo-pill ceo-applink" data-act="nav" data-v="home">לאפליקציה '+ico('back',16)+'</button></div>'+
     '<h1>שלום'+(first?' '+esc(isCeo()?first:'אבי'):'')+'</h1><p>'+esc(dstr)+'</p>'+
     '<button class="ceo-add" data-act="ceoadd">'+ico('plus',22)+'הוסף משימה</button></div></header><main class="wrap">';
+  h+=wxBanner();
   var need=S.tasks.filter(function(t){return t.status==='ממתין להחלטה';}).slice(0,4);
   if(need.length){
     h+='<h2 class="ceo-h">צריך אותך</h2><div class="stack">'+need.map(function(t){
@@ -2184,12 +2227,12 @@ async function boot(session){
   render();
   if(AUTH.role==='worker'){await loadWorker();runPendingOpen();return;}
   gRestore();
-  await loadAll();loadBell();subscribe();runPendingOpen();
+  await loadAll();loadBell();subscribe();runPendingOpen();setTimeout(wxCheck,1500);
 }
 sb.auth.onAuthStateChange(function(ev,session){
   if(ev==='INITIAL_SESSION'||ev==='SIGNED_IN'||ev==='SIGNED_OUT')setTimeout(function(){boot(session);},0);
 });
-setInterval(function(){if(AUTH.state==='app'&&AUTH.role==='worker'){loadWorker();return;}if(AUTH.state==='app'&&!form&&!document.hidden)loadAll();loadBell();},90000);
+setInterval(function(){if(AUTH.state==='app'&&AUTH.role==='worker'){loadWorker();return;}if(AUTH.state==='app'&&!form&&!document.hidden){loadAll();wxCheck();}loadBell();},90000);
 document.addEventListener('visibilitychange',function(){if(!document.hidden&&AUTH.state==='app'&&AUTH.role==='worker'){loadWorker();return;}
   if(!document.hidden&&AUTH.state==='app'&&!form){loadAll();}});
 var lastRKey='';
