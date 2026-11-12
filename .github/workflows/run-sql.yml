@@ -1,0 +1,29 @@
+name: Run SQL on Supabase
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "supabase/install_all.sql"
+
+jobs:
+  sql:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: jaaidfpfeihxfhzxsuak
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run install_all.sql (safe to run again)
+        run: |
+          jq -n --rawfile q supabase/install_all.sql '{query: $q}' > body.json
+          code=$(curl -sS -o out.json -w "%{http_code}" -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" \
+            -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data @body.json)
+          echo "HTTP $code"; head -c 2000 out.json; echo
+          [ "$code" -ge 200 ] && [ "$code" -lt 300 ]
+      - name: Check
+        run: |
+          q='select (select count(*) from information_schema.tables where table_schema=$$public$$ and table_name in ($$sched_rows$$,$$resp_items$$,$$payments$$,$$change_requests$$,$$wa_window$$,$$bot_state$$,$$bot_config$$)) as new_tables, (select count(*) from cron.job where jobname=$$feder-bot$$) as cron_jobs'
+          jq -n --arg q "$q" '{query: $q}' > c.json
+          curl -sS -X POST "https://api.supabase.com/v1/projects/$PROJECT_REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" --data @c.json; echo
