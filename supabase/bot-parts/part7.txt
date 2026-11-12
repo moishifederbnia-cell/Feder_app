@@ -1,0 +1,213 @@
+// ---------- buttons (template quick replies) ----------
+async function handleButton(c: Ctx, m: any): Promise<string> {
+  const payload = m.button?.payload || m.interactive?.button_reply?.id || "";
+  const text = m.button?.text || m.interactive?.button_reply?.title || "";
+  const ar = c.lang === "ar";
+  const more = await db.from("bot_pending").select("payload").eq("phone", "more:" + c.from).maybeSingle();
+  if (payload === "show_tasks") {
+    const today = ymd(il()), people = await teamPeople(), pm = await projMap();
+    const me = people.find((p) => last9(p.phone) === last9(c.from));
+    if (!me) return more.data?.payload?.text || "";
+    const mm = await morningFor(me, await openTasksUpTo(today), people, pm.byId, today);
+    return mm.count ? mm.text : (ar ? "لا توجد مهام اليوم 👍" : "אין משימות להיום 👍");
+  }
+  if (payload === "eod") {
+    const p = await db.from("bot_pending").select("payload").eq("phone", "eod:" + c.from).maybeSingle();
+    return more.data?.payload?.text || (p.data ? "מה בוצע?" : (ar ? "شكراً" : "תודה!"));
+  }
+  if (payload === "meet_ok") return ar ? "👍" : "מעולה 👍";
+  if (more.data?.payload?.text) { await db.from("bot_pending").delete().eq("phone", "more:" + c.from); return more.data.payload.text; }
+  return text ? await route(c, text, null) : "";
+}
+
+// ---------- replies to the end-of-day list ("1,3" / "5 80" / "הכל") ----------
+async function preRoute(c: Ctx, t: string): Promise<string | null> {
+  if (c.role !== "staff" && c.role !== "worker") return null;
+  const { data } = await db.from("bot_pending").select("payload,created_at").eq("phone", "eod:" + c.from).maybeSingle();
+  if (!data || Date.now() - Date.parse(data.created_at) > 20 * 3600 * 1000) return null;
+  const items: any[] = data.payload.items || [], ar = !!data.payload.ar;
+  const all = /^(הכל|הכול|כולם|כולן|הכל בוצע|כל המשימות|الكل|كلها|خلصت كل)/.test(t.trim());
+  const nums = (t.match(/\d{1,3}\s*%?/g) || []).map((x) => ({ v: parseInt(x, 10), pct: /%/.test(x) }));
+  const rest = t.replace(/\d+|%|[,.\-–=:\s]|בוצעו|בוצע|הושלמו|סיימתי|גמרתי|גמרנו|סגרתי|כן|ו|تم|خلصت|و/g, "");
+  if (!all && (!nums.length || rest.length > 0)) return null;
+  const done: string[] = [], gantt: string[] = [];
+  if (all) items.filter((x) => x.type === "task").forEach((x) => done.push(x.id));
+  for (let i = 0; i < nums.length; i++) {
+    const it = items.find((x) => x.n === nums[i].v); if (!it || nums[i].pct) continue;
+    if (it.type === "sched" && i + 1 < nums.length && (nums[i + 1].pct || !items.some((x) => x.n === nums[i + 1].v) || nums[i + 1].v > items.length)) {
+      const pct = Math.max(0, Math.min(100, nums[i + 1].v)); i++;
+      await db.from("sched_rows").update({ actual: pct, updated_at: new Date().toISOString() }).eq("id", it.id);
+      gantt.push(it.title + " " + pct + "%");
+    } else if (it.type === "task") done.push(it.id);
+    else if (it.type === "sched") { await db.from("sched_rows").update({ actual: 100, updated_at: new Date().toISOString() }).eq("id", it.id); gantt.push(it.title + " 100%"); }
+  }
+  if (!done.length && !gantt.length) return null;
+  if (done.length) await db.from("tasks").update({ status: "הושלם", done_at: new Date().toISOString() }).in("id", done);
+  const left = items.filter((x) => x.type === "task" && !done.includes(x.id));
+  if (!left.length) await db.from("bot_pending").delete().eq("phone", "eod:" + c.from);
+  if (ar) return "شكراً! ✔️ تم تحديث " + done.length + " مهام" + (left.length ? "\nباقي: " + left.map((x) => x.n + ". " + x.title).join("، ") : "");
+  return "עודכן ✓" + (done.length ? "\nבוצעו: " + items.filter((x) => done.includes(x.id)).map((x) => x.title).join(", ") : "") + (gantt.length ? "\nגאנט: " + gantt.join(", ") : "") + (left.length ? "\nנשארו פתוחות: " + left.map((x) => x.n + ". " + x.title).join(", ") : "");
+}
+
+// ---------- clients & architects (limited) ----------
+async function identifyExternal(from: string, T: any[]): Promise<Ctx | null> {
+  try {
+    const { data } = await db.from("projects").select("id,name,client_phone,client_name,architect_phone,architect_name,status");
+    const l9 = from.slice(-9);
+    const arch = (data || []).filter((p: any) => last9(p.architect_phone) === l9 && p.status !== "הסתיים");
+    const cli = (data || []).filter((p: any) => last9(p.client_phone) === l9 && p.status !== "הסתיים");
+    if (arch.length) return { from, role: "architect", lang: "he", member: null, name: arch[0].architect_name || "", team: T, projects: arch };
+    if (cli.length) return { from, role: "client", lang: "he", member: null, name: cli[0].client_name || "", team: T, projects: cli };
+  } catch (_e) { /* columns missing */ }
+  return null;
+}
+async function staffPush(title: string, body: string) { await pushTo(await adminIds(), title, body); }
+const SUP_FIELDS = ["מטבח", "אלומיניום", "אינסטלציה", "חשמל", "מיזוג", "דלתות", "ריצוף", "שיש", "סניטרי", "תאורה", "נגרות", "זכוכית", "צבע", "גבס", "מעקות", "פרגולה"];
+async function addClientSupplier(pid: string, name: string, phone: string, field: string) {
+  const d = String(phone || "").replace(/\D/g, "");
+  let sid: string | null = null;
+  if (d.length >= 9) {
+    const { data } = await db.from("suppliers").select("id,phone");
+    const f = (data || []).find((s: any) => last9(s.phone) === d.slice(-9)); if (f) sid = f.id;
+  }
+  if (!sid) {
+    const ins = await db.from("suppliers").insert({ name: name || phone, phone: phone || null, field: field || null, notes: "נוסף ע״י הלקוח בוואטסאפ" }).select("id").maybeSingle();
+    sid = ins.data?.id || null;
+  }
+  if (!sid) return false;
+  let r = await db.from("project_suppliers").upsert({ project_id: pid, supplier_id: sid, client_added: true }, { onConflict: "project_id,supplier_id" });
+  if (r.error) r = await db.from("project_suppliers").upsert({ project_id: pid, supplier_id: sid }, { onConflict: "project_id,supplier_id" });
+  return !r.error;
+}
+async function handleExternal(c: Ctx, m: any): Promise<string> {
+  const ps = c.projects || [];
+  let proj = ps[0];
+  const isArch = c.role === "architect";
+  const askK = "ext:" + c.from;
+  const { data: ask } = await db.from("bot_pending").select("payload,created_at").eq("phone", askK).maybeSingle();
+  if (ask?.payload?.project_id) proj = ps.find((p: any) => p.id === ask.payload.project_id) || proj;
+  const text = m.type === "text" ? String(m.text?.body || "").trim() : (m.button?.text || m.interactive?.button_reply?.title || "");
+  if (m.type === "button" || m.type === "interactive") {
+    const more = await db.from("bot_pending").select("payload").eq("phone", "more:" + c.from).maybeSingle();
+    if (more.data?.payload?.text) { await db.from("bot_pending").delete().eq("phone", "more:" + c.from); return more.data.payload.text; }
+  }
+  // which project (if several)
+  if (ps.length > 1 && !ask?.payload?.project_id && text) { const pp = matchProject(text, text, ps); if (pp) proj = pp; }
+  // files / photos
+  if (m.type === "document" || m.type === "image") {
+    const id = m.document?.id || m.image?.id, fname = m.document?.filename || "תמונה.jpg";
+    const md = await downloadMedia(id); if (!md) return "לא הצלחתי לקבל את הקובץ, אפשר לשלוח שוב?";
+    const ext = (fname.match(/\.([A-Za-z0-9]{1,6})$/) || [])[1]?.toLowerCase() || (md.mime.includes("pdf") ? "pdf" : "jpg");
+    const path = "plans/ext/" + Date.now() + "-" + Math.random().toString(36).slice(2, 8) + "." + ext;
+    const up = await db.storage.from("photos").upload(path, md.buf, { contentType: md.mime });
+    if (up.error) return "לא הצלחתי לשמור את הקובץ, אפשר לשלוח שוב?";
+    const title = (m.document?.caption || m.image?.caption || fname.replace(/\.[^.]+$/, "")).slice(0, 120);
+    const row: any = { project_id: proj.id, title, file_path: path, file_name: fname, file_type: ext, kind: isArch ? "תוכנית" : "מסמך אחר", notes: isArch ? "נשלח ע״י האדריכלית בוואטסאפ" : "נשלח ע״י הלקוח בוואטסאפ" };
+    let ins = await db.from("plans").insert(row);
+    if (ins.error) { delete row.kind; ins = await db.from("plans").insert(row); }
+    await staffPush(isArch ? "האדריכלית שלחה קובץ" : "הלקוח שלח קובץ", title + " · " + proj.name);
+    return "תודה! הקובץ נשמר בפרויקט " + proj.name + " ✔️" + (ps.length > 1 ? "\n(אם זה לפרויקט אחר, כתבו את שמו)" : "");
+  }
+  // contacts → supplier (clients)
+  if (m.type === "contacts" && !isArch) {
+    const list = (m.contacts || []).map((x: any) => ({ name: String(x?.name?.formatted_name || x?.name?.first_name || "").trim(), phone: String(x?.phones?.[0]?.phone || x?.phones?.[0]?.wa_id || "").trim() }));
+    const names: string[] = [];
+    for (const x of list) { const field = (ask?.payload?.topic && SUP_FIELDS.find((f) => String(ask.payload.topic).includes(f))) || SUP_FIELDS.find((f) => x.name.includes(f)) || ""; if (await addClientSupplier(proj.id, x.name, x.phone, field)) names.push(x.name + (field ? " (" + field + ")" : "")); }
+    if (names.length) await staffPush("הלקוח הוסיף ספק", names.join(", ") + " · " + proj.name);
+    return names.length ? "תודה! נשמר אצלנו כספק בפרויקט " + proj.name + ": " + names.join(", ") + " ✔️" : "לא הצלחתי לשמור את איש הקשר, אפשר לכתוב שם וטלפון?";
+  }
+  if (m.type === "audio") return "אפשר לכתוב לנו בהודעה כתובה? 🙏";
+  if (!text) return "קיבלנו, תודה!";
+  // text with a phone number → supplier (clients)
+  const ph = text.match(/0\d[\d\-\s]{7,11}\d|\+?972[\d\-\s]{8,12}\d/);
+  if (ph && !isArch) {
+    const name = text.replace(ph[0], "").replace(/[:\-–,]+/g, " ").replace(/\s+/g, " ").trim();
+    const field = SUP_FIELDS.find((f) => text.includes(f)) || (ask?.payload?.topic && SUP_FIELDS.find((f) => String(ask.payload.topic).includes(f))) || "";
+    if (await addClientSupplier(proj.id, name || ph[0], ph[0].replace(/[^\d+]/g, ""), field)) {
+      await staffPush("הלקוח הוסיף ספק", (name || ph[0]) + (field ? " · " + field : "") + " · " + proj.name);
+      return "תודה! " + (name || "הספק") + " נשמר אצלנו" + (field ? " כספק " + field : "") + " בפרויקט " + proj.name + " ✔️";
+    }
+  }
+  // answer to a question we asked (resp item) / general message → saved for Moshe
+  if (ask?.payload?.item_id) {
+    const doneW = /(בוצע|כן|סיימנו|הוזמן|יש|נשלח|מוכן)/.test(text);
+    await db.from("resp_items").update({ reply: text.slice(0, 500), ...(doneW ? { done: true, done_at: new Date().toISOString() } : {}) }).eq("id", ask.payload.item_id);
+  }
+  await db.from("messages").insert({ project_id: proj.id, body: (isArch ? "[אדריכלית בוואטסאפ] " : "[וואטסאפ] ") + text.slice(0, 1500) });
+  await staffPush(isArch ? "הודעה מהאדריכלית" : "הודעה מהלקוח", text.slice(0, 120) + " · " + proj.name);
+  return "תודה, קיבלנו! משה יחזור אליך אם צריך 🙏";
+}
+
+// ---------- staff commands: request plans / ask client / send open items / update weekly gantt ----------
+async function sendToExternal(p: any, who: "client" | "architect", text: string, short: string, topic: string, itemId?: string): Promise<string> {
+  const phone = who === "client" ? p.client_phone : p.architect_phone;
+  if (!phone) return who === "client" ? "אין טלפון של הלקוח בפרויקט " + p.name + ". מוסיפים בעריכת הפרויקט באפליקציה." : "אין טלפון של האדריכלית בפרויקט " + p.name + ". מוסיפים בעריכת הפרויקט באפליקציה.";
+  const to = intl(phone);
+  await db.from("bot_pending").upsert({ phone: "ext:" + to, payload: { project_id: p.id, topic, item_id: itemId || null }, created_at: new Date().toISOString() });
+  const how = await waSend(to, text, { name: TPL.update, lang: "he", params: [p.name, short], payload: "more" });
+  if (how === "failed") return "השליחה נכשלה. ודא שהתבנית " + TPL.update + " אושרה במטא.";
+  return "נשלח ✓ ל" + (who === "client" ? "לקוח" : "אדריכלית") + (how === "template" ? " (בתבנית, כי לא כתבו לבוט ב-24 השעות האחרונות)" : "") + ":\n" + text;
+}
+async function openItemsText(p: any, who: "client" | "architect") {
+  const { data } = await db.from("resp_items").select("id,item,note,week,urgent,grp").eq("project_id", p.id).eq("done", false);
+  const list = (data || []).filter((x: any) => (who === "architect" ? x.grp === "architect" : x.grp === "client" || x.grp === "client_supply"));
+  if (!list.length) return null;
+  return { list, text: "שלום, עדכון מפדר בניה לגבי " + p.name + ".\nאלה הדברים שמחכים לטיפולכם לפי לוח הזמנים:\n" + list.map((x: any, i: number) => (i + 1) + ". " + x.item + (x.urgent ? " (מיידי)" : "") + (x.week ? " – עד שבוע " + x.week : "") + (x.note ? " – " + x.note : "")).join("\n") + "\n\nאפשר לענות כאן (למשל: \"1 בוצע\") ולשלוח קבצים. תודה!" };
+}
+async function handleExtraAction(a: any, c: Ctx, proj: any, P: any[], needProj: string): Promise<string> {
+  if (a.action === "update_sched") {
+    const ups = Array.isArray(a.sched_updates) ? a.sched_updates : [];
+    if (!ups.length) return "מה לעדכן בגאנט? למשל: גבס 80";
+    let q = db.from("sched_rows").select("id,title,project_id,section,targets,actual");
+    if (proj) q = q.eq("project_id", proj.id);
+    const { data } = await q;
+    const rows = data || [], done: string[] = [], miss: string[] = [];
+    for (const u of ups) {
+      const k = norm(u.title || "");
+      const cand = rows.filter((r: any) => norm(r.title).includes(k) || k.includes(norm(r.title)));
+      if (!cand.length) { miss.push(u.title); continue; }
+      if (cand.length > 1 && !proj && new Set(cand.map((r: any) => r.project_id)).size > 1) { miss.push(u.title + " (באיזה פרויקט?)"); continue; }
+      const r = cand[0], patch: any = { updated_at: new Date().toISOString() };
+      if (u.actual != null) patch.actual = Math.max(0, Math.min(100, Math.round(u.actual)));
+      if (u.done != null) patch.done = !!u.done;
+      if (r.section === "client" && u.actual != null && u.done == null) patch.done = u.actual >= 100;
+      await db.from("sched_rows").update(patch).eq("id", r.id);
+      done.push(r.title + (patch.actual != null ? " " + patch.actual + "%" : patch.done ? " ✓" : ""));
+    }
+    return (done.length ? "עודכן בגאנט ✓ " + done.join(", ") : "") + (miss.length ? (done.length ? "\n" : "") + "לא מצאתי בגאנט: " + miss.join(", ") : "");
+  }
+  if (!proj) return needProj;
+  const { data: full } = await db.from("projects").select("*").eq("id", proj.id).maybeSingle();
+  const p = full || proj;
+  if (a.action === "request_plans") {
+    const txt = "שלום" + (p.architect_name ? " " + p.architect_name : "") + ", כאן הבוט של פדר בניה 👋\nאפשר לשלוח לכאן את התוכניות והמסמכים לפרויקט *" + p.name + "* (PDF או תמונה), והם יישמרו ישר אצלנו בפרויקט. תודה! 📐";
+    return await sendToExternal(p, "architect", txt, "נשמח שתשלחי לכאן את התוכניות והמסמכים לפרויקט", "plans");
+  }
+  if (a.action === "send_open_items") {
+    const who = a.who === "architect" ? "architect" : "client";
+    const o = await openItemsText(p, who);
+    if (!o) return "אין פריטים פתוחים ל" + (who === "client" ? "לקוח" : "אדריכלית") + " בפרויקט " + p.name + ".";
+    return await sendToExternal(p, who, o.text, o.list.length + " דברים מחכים לטיפולכם לפי לוח הזמנים", "open_items", o.list.length === 1 ? o.list[0].id : undefined);
+  }
+  // ask_client
+  const topic = String(a.topic || "הספקים").trim();
+  const all = /כל הספקים|הספקים/.test(topic);
+  const { data: it } = await db.from("resp_items").select("id,item").eq("project_id", p.id).eq("done", false);
+  const match = (it || []).find((x: any) => norm(x.item).includes(norm(topic.replace(/^ספק\s*ה?/, ""))) || norm(topic).includes(norm(x.item)));
+  const txt = "שלום" + (p.client_name ? " " + p.client_name : "") + ", כאן הבוט של פדר בניה 👋\n" +
+    (all ? "כדי שנתאם את העבודה, אפשר לשלוח לנו כאן את אנשי הקשר של הספקים שלכם (מטבח, אלומיניום, דלתות, מיזוג וכו')? מספיק לשתף איש קשר או לכתוב שם וטלפון."
+      : "רצינו לשאול – מה קורה עם " + topic + "? אפשר לענות כאן, ואם יש ספק, לשתף את איש הקשר שלו.") + "\nתודה!";
+  return await sendToExternal(p, "client", txt, all ? "נשמח לקבל את אנשי הקשר של הספקים שלכם" : "רצינו לשאול מה קורה עם " + topic, topic, match?.id);
+}
+// from the app (staff button): {action:"send_ext", project_id, kind: suppliers|plans|open_client|open_architect}
+async function sendExtFromApp(b: any) {
+  const { data: p } = await db.from("projects").select("*").eq("id", b.project_id).maybeSingle();
+  if (!p) return { ok: false, msg: "פרויקט לא נמצא" };
+  const fake: any = { action: "", topic: "כל הספקים" };
+  if (b.kind === "plans") fake.action = "request_plans";
+  else if (b.kind === "open_client" || b.kind === "open_architect") { fake.action = "send_open_items"; fake.who = b.kind === "open_architect" ? "architect" : "client"; }
+  else fake.action = "ask_client";
+  const c: any = { from: "", role: "staff", lang: "he", member: null, name: "", team: [] };
+  const msg = await handleExtraAction(fake, c, p, [p], "");
+  return { ok: msg.startsWith("נשלח"), msg };
+}
