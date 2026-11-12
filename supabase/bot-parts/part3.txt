@@ -9,8 +9,10 @@
         const ip = it.project_name ? (matchProject(it.project_name, "", P) || proj) : proj;
         if (!ip) { out.push("✗ " + title + " (לא ידוע לאיזה פרויקט)"); continue; }
         const due = DATE_RE.test(it.due || "") ? it.due : null;
-        const mem = it.assignee ? matchMember(it.assignee, c.team) : null;
-        const row: any = { project_id: ip.id, title, title_ar: it.title_ar || null, due, status: (it.decision || a.decision) ? "ממתין להחלטה" : "לביצוע", assignee_id: mem ? mem.id : null };
+        const mems: any[] = [];
+        for (const nm of [...(Array.isArray(it.assignees) ? it.assignees : []), it.assignee].filter(Boolean)) { const mm = matchMember(String(nm), c.team); if (mm && !mems.some((x) => x.id === mm.id)) mems.push(mm); }
+        const mem = mems[0] || null;
+        const row: any = { project_id: ip.id, title, title_ar: it.title_ar || null, due, status: (it.decision || a.decision) ? "ממתין להחלטה" : "לביצוע", assignee_id: mem ? mem.id : null, assignee_ids: mems.map((x) => x.id) };
         const hasT = TIME_RE.test(it.time || "") && !!due;
         const tid = crypto.randomUUID();
         row.id = tid;
@@ -18,14 +20,15 @@
         if (mediaPath && first) row.photo = mediaPath;
         row.area = String(it.area || a.area || "").trim() || "כללי";
         let ins = await db.from("tasks").insert(row);
+        if (ins.error) { delete row.assignee_ids; ins = await db.from("tasks").insert(row); }
         if (ins.error && (hasT || row.photo || row.area)) { delete row.due_time; delete row.photo; delete row.area; ins = await db.from("tasks").insert(row); }
         if (ins.error) { out.push("✗ " + title); continue; }
         first = false;
         projNames.add(ip.name);
         let evNote = "";
-        if (hasT) evNote = await mkTimed(title, due as string, it.time, ip.id, a.remind_minutes, !!it.meeting, [mem?.user_id || ""], tid);
-        out.push(`• ${title}${mem ? " ← " + mem.name : ""}${due ? " (עד " + fmtD(due) + ")" : ""}${evNote}${projNames.size > 1 || (it.project_name && proj && ip.id !== proj.id) ? " [" + ip.name + "]" : ""}`);
-        if (mem) await notifyAssignee(mem.id, title, it.title_ar || null, ip.name, c);
+        if (hasT) evNote = await mkTimed(title, due as string, it.time, ip.id, a.remind_minutes, !!it.meeting, mems.map((x) => x.user_id || ""), tid);
+        out.push(`• ${title}${mems.length ? " ← " + mems.map((x) => x.name).join(", ") : ""}${due ? " (עד " + fmtD(due) + ")" : ""}${evNote}${projNames.size > 1 || (it.project_name && proj && ip.id !== proj.id) ? " [" + ip.name + "]" : ""}`);
+        for (const mm of mems) await notifyAssignee(mm.id, title, it.title_ar || null, ip.name, c);
       }
       const head = projNames.size === 1 ? `נשמר ✓ ב"${Array.from(projNames)[0]}" (${out.filter((x) => x.startsWith("•")).length} משימות):` : `נשמר ✓ (${out.filter((x) => x.startsWith("•")).length} משימות):`;
       return head + "\n" + out.join("\n");
@@ -47,7 +50,7 @@
       let who: any = null;
       if (a.mine && c.member) who = c.member;
       else if (a.assignee_name) who = matchMember(a.assignee_name, c.team);
-      if (who) q = q.eq("assignee_id", who.id);
+      if (who) q = q.or(`assignee_id.eq.${who.id},assignee_ids.cs.${JSON.stringify([who.id])}`);
       const { data } = await q.limit(25);
       if (!data?.length) return L(c, "אין משימות" + (scope === "done" ? " שהושלמו" : "") + " כאלה 👍", "لا توجد مهام 👍");
       const SC: Record<string, string> = { today: "להיום ובאיחור", tomorrow: "למחר", week: "לשבוע הקרוב", overdue: "באיחור", open: "פתוחות", done: "שהושלמו" };

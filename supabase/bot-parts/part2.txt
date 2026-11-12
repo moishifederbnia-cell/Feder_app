@@ -19,6 +19,16 @@
         period: { type: "string", enum: ["week", "month", "all"], description: "expense_summary period" },
         address: { type: "string" }, client_name: { type: "string" },
         reply: { type: "string", description: "For action=chat: short answer or a question asking for the missing detail" },
+        sched_updates: {
+          type: "array", description: "update_sched: rows of the weekly gantt (Amit's format) to update. Identify by the row's words (גבס, ריצוף מדרגות...)",
+          items: { type: "object", properties: {
+            title: { type: "string", description: "words identifying the gantt row" },
+            actual: { type: "integer", description: "actual completed percent 0-100 (\"גמרנו\"/\"הסתיים\" = 100)" },
+            done: { type: "boolean", description: "for client/architect rows: done" },
+          }, required: ["title"] },
+        },
+        topic: { type: "string", description: "ask_client: what to ask the client about, e.g. 'ספק האלומיניום', 'כל הספקים', 'מדידות מטבח'" },
+        who: { type: "string", enum: ["client", "architect"], description: "send_open_items: to the client or the architect" },
       },
       required: ["action"],
     },
@@ -61,6 +71,11 @@ ${common}`;
 - לוח הגאנט (לוח זמנים שבועי של פרויקט, טבלה עם: שבוע מספר, תאריכים, התקדמות צפויה, הושלם באחוזים וצבע, אבני דרך, הערות, משימות ללקוח/אדריכלית). add_gantt: שורה לכל שבוע/תקופה ב-stages (title=התקדמות צפויה, start, end או after_last+days, pct, color, milestone, notes, client_task). update_gantt: gantt_updates, לכל שורה זיהוי לפי week (מספר השבוע בטבלה) או date או title, ובנוסף כל שדה לשינוי (pct, start, end, new_title, color, milestone, notes, client_task; '-' מנקה שדה). אפשר כמה שינויים בהודעה אחת. delete_gantt: מחיקת שורה (gantt_updates עם זיהוי). list_gantt: הצג את הלוח. כל "זז/נדחה/הושלם/הוסף אבן דרך/משימה ללקוח" בהקשר של לוח זמנים הוא update_gantt.
 - add_event: פגישה/אירוע ביומן. title, due=התאריך (YYYY-MM-DD), time (HH:MM) אם יש, location, remind_minutes.
 - list_events: מה ביומן. scope today/tomorrow/week.
+- update_sched: עדכון ביצוע בגאנט השבועי (הפורמט של עמית: שורות כמו גבס, ריצוף מדרגות, שפכטל, עם יעד אחוזים לכל שבוע). "גבס 85", "ריצוף מדרגות גמרנו", "שפכטל קומה 2 חצי" => sched_updates עם title ו-actual. "בוצע" לשורת לקוח/אדריכלית => done=true. עדיף update_sched על update_gantt כשמדובר בשם של עבודה ולא במספר שבוע.
+- request_plans: לבקש מהאדריכלית של הפרויקט לשלוח תוכניות ומסמכים (למשל "תשלח לאדריכלית בכהן בקשה לתוכניות").
+- ask_client: לשאול את הלקוח של הפרויקט שאלה בוואטסאפ, בעיקר על ספקים ("תשאל את לוי מה קורה עם ספק האלומיניום", "תשאל את הלקוח על כל הספקים"). topic = הנושא.
+- send_open_items: לשלוח ללקוח (who=client) או לאדריכלית (who=architect) את רשימת הדברים הפתוחים שבאחריותם לפי הגאנט.
+- add_task עם כמה אחראים ("למשה, עמית ואבו יאסר"): מלא assignees עם כל השמות.
 - chat: כל דבר אחר או כשחסר פרט הכרחי. ב-reply משפט קצר בעברית ושאלה על מה שחסר.
 ${common}`;
 }
@@ -117,7 +132,7 @@ async function takePending(from: string): Promise<any | null> {
 const YES = /^(כן|אישור|אשר|בטח|סבבה|yes|ok|okay|نعم|اي|أيوه)\s*[.!]?$/i;
 const NO = /^(לא|בטל|ביטול|עזוב|no|cancel|لا)\s*[.!]?$/i;
 
-const BOT_VERSION = "10.11.26 (לוח זמנים, זיכרון שיחה, קבלות PDF, קול)";
+const BOT_VERSION = "12.11.26 (הודעות יוזמות, 4 משתמשים, גאנט שבועי, לקוחות ואדריכליות)";
 const GANTT_COLORS = ["ירוק", "כתום", "כחול", "אדום", "סגול", "אפור"];
 const ganttColor = (c: any) => { const v = String(c || "").trim(); return GANTT_COLORS.includes(v) ? v : null; };
 const strOrNull = (v: any) => { const t = String(v == null ? "" : v).trim(); return t && t !== "-" && t !== "אין" ? t : null; };
@@ -204,5 +219,7 @@ async function handleAI(c: Ctx, text: string, media: { buf: Uint8Array; mime: st
   };
 
   switch (a.action) {
+    case "update_sched": case "request_plans": case "ask_client": case "send_open_items":
+      return await handleExtraAction(a, c, proj, P, needProj);
     // ----- tasks -----
     case "add_task": {

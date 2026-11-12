@@ -9,7 +9,7 @@ const ALLOWED = (Deno.env.get("ALLOWED_NUMBERS") || "").split(",").map((x) => x.
 const AI_KEY = Deno.env.get("ANTHROPIC_API_KEY") || "";
 const AI_MODEL = Deno.env.get("AI_MODEL") || "claude-haiku-5-5";
 
-type Ctx = { from: string; role: "staff" | "worker"; lang: "he" | "ar"; member: any | null; name: string; team: any[] };
+type Ctx = { from: string; role: "staff" | "worker" | "client" | "architect"; lang: "he" | "ar"; member: any | null; name: string; team: any[]; projects?: any[]; urole?: string };
 const L = (c: Ctx, he: string, ar: string) => (c.lang === "ar" ? ar : he);
 
 // ---------- WhatsApp I/O ----------
@@ -112,13 +112,15 @@ async function identify(from: string): Promise<Ctx | null> {
   const T = team || [];
   const member = T.find((m: any) => m.phone && String(m.phone).replace(/\D/g, "").slice(-9) === last9) || null;
   const boss = ALLOWED.includes(from);
-  if (!boss && !member) return null;
+  if (!boss && !member) return await identifyExternal(from, T);
   let role: "staff" | "worker" = boss ? "staff" : "worker";
+  let urole = boss ? "admin" : "worker";
   if (member?.user_id) {
     const { data: pr } = await db.from("profiles").select("role").eq("id", member.user_id).maybeSingle();
-    role = pr && (pr.role === "admin" || pr.role === "team") ? "staff" : "worker";
+    role = pr && (pr.role === "admin" || pr.role === "team" || pr.role === "ceo") ? "staff" : "worker";
+    urole = pr?.role || urole;
   }
-  return { from, role, lang: role === "worker" ? "ar" : "he", member, name: member ? member.name : "", team: T };
+  return { from, role, lang: role === "worker" ? "ar" : "he", member, name: member ? member.name : "", team: T, urole };
 }
 
 // ---------- Arabic translation (spoken, simple) ----------
@@ -181,7 +183,7 @@ async function authStaff(req: Request): Promise<boolean> {
     const uid = data?.user?.id;
     if (!uid) return false;
     const { data: pr } = await db.from("profiles").select("role").eq("id", uid).maybeSingle();
-    return pr?.role === "admin" || pr?.role === "team";
+    return pr?.role === "admin" || pr?.role === "team" || pr?.role === "ceo";
   } catch { return false; }
 }
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization, content-type, apikey, x-client-info", "Access-Control-Allow-Methods": "POST, GET, OPTIONS" };
@@ -195,7 +197,8 @@ const STAFF_ACTIONS = [
   "find_supplier", "add_supplier", "link_supplier",
   "add_order", "update_order", "list_orders",
   "add_doc", "add_supplier_doc",
-  "add_event", "list_events", "add_gantt", "update_gantt", "delete_gantt", "list_gantt", "chat",
+  "add_event", "list_events", "add_gantt", "update_gantt", "delete_gantt", "list_gantt",
+  "update_sched", "request_plans", "ask_client", "send_open_items", "chat",
 ];
 const WORKER_ACTIONS = ["list_tasks", "complete_task", "reopen_task", "add_doc", "chat"];
 
@@ -249,6 +252,7 @@ function actTool(actions: string[]) {
               title_ar: { type: "string", description: "The same task translated to clear Arabic" },
               due: { type: "string", description: "YYYY-MM-DD or empty" },
               assignee: { type: "string", description: "Team member name exactly as in the team list, or empty" },
+              assignees: { type: "array", items: { type: "string" }, description: "When the task is for several people (e.g. משה, עמית ואבו יאסר): every name exactly as in the team list" },
               time: { type: "string", description: "HH:MM only if a specific time was stated for the task (reminder 30 min before is created). No time stated => leave empty, no reminder." },
               area: { type: "string", description: "Trade/area of the task: כללי, ריצוף, חשמל, אינסטלציה, טיח, איטום, צבע, מוסטפה, or another trade stated. Default כללי" },
               meeting: { type: "boolean", description: "true only if the user calls it a meeting / פגישה / מפגש: then it is also saved as a calendar event" },

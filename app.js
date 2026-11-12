@@ -351,7 +351,8 @@ var STAGES=['שלד','אינסטלציה','חשמל','איטום','טיח','רי
 var F={
  project:{title:'פרויקט',col:'projects',fields:[
   {k:'name',l:'שם הפרויקט',t:'text',req:1},{k:'address',l:'כתובת',t:'text'},
-  {k:'clientName',l:'שם הלקוח',t:'text'},{k:'clientPhone',l:'טלפון הלקוח',t:'tel'},
+  {k:'clientName',l:'שם הלקוח',t:'text'},{k:'clientPhone',l:'טלפון הלקוח (לוואטסאפ)',t:'tel'},
+  {k:'architect_name',l:'אדריכלית / מעצבת – שם',t:'text'},{k:'architect_phone',l:'אדריכלית – טלפון (לוואטסאפ)',t:'tel'},
   {k:'status',l:'סטטוס',t:'select',o:['בהתחלה','בביצוע','בפינישים','הסתיים'],d:'בביצוע'},
   {k:'budget',l:'תקציב (₪)',t:'number'}]},
  task:{title:'משימה',col:'tasks',fields:[
@@ -916,6 +917,7 @@ function vUsers(){
     h+='<div class="card" style="margin-bottom:12px"><b>צוות העבודה</b><div class="muted" style="margin:4px 0 8px">חבר כל אחד מהצוות למשתמש שלו כדי שיקבל התראות על משימות שמשויכות אליו.</div>'+
       S.team_members.map(function(m){return '<div class="fld" style="margin:8px 0 0"><label for="tm_'+esc(m.id)+'">'+esc(m.name)+(m.title?' · '+esc(m.title):'')+'</label><select id="tm_'+esc(m.id)+'" data-tm="'+esc(m.id)+'"><option value="">לא מחובר</option>'+staffU.map(function(u){return '<option value="'+esc(u.id)+'"'+(m.user_id===u.id?' selected':'')+'>'+esc(u.name||u.email||'')+'</option>';}).join('')+'</select><input class="ltr" type="tel" inputmode="tel" data-tmph="'+esc(m.id)+'" value="'+esc(m.phone||'')+'" placeholder="טלפון לבוט וואטסאפ (05...)" aria-label="טלפון של '+esc(m.name)+'" style="margin-top:6px"><input class="ltr" type="email" data-tmem="'+esc(m.id)+'" value="'+esc(m.email||'')+'" placeholder="ג׳ימייל (להזמנות ביומן גוגל)" aria-label="ג׳ימייל של '+esc(m.name)+'" style="margin-top:6px"></div>';}).join('')+'</div>';
   }
+  if(isAdmin())h+='<div class="card" style="margin-bottom:12px"><b>בדיקת הבוט</b><div class="muted" style="margin:4px 0 8px">שולח עכשיו לכל הצוות את ההודעה, בלי לחכות לשעה הקבועה (7:00 / 17:00).</div><div class="grid2"><button class="btn btn-line" data-act="crontest" data-v="morning">שלח בוקר טוב עכשיו</button><button class="btn btn-line" data-act="crontest" data-v="evening">שלח סיכום יום עכשיו</button></div></div>';
   if(isAdmin())h+='<div class="card" style="margin-bottom:12px"><b>תרגום לערבית</b><div class="muted" style="margin:4px 0 8px">פרויקטים ומשימות מתורגמים לערבית אוטומטית בכל שמירה. כפתור זה מתרגם את מה שכבר קיים.</div><button class="btn btn-accent" data-act="trall">תרגם הכול לערבית</button></div>';
   h+='<div class="card muted" style="margin-bottom:12px">מי שנרשם ממתין עד שתבחר לו תפקיד. צוות רואה ועורך הכול. רואה חשבון רואה הוצאות בלבד. לקוח רואה רק את האזור האישי של הפרויקטים ששייכת לו. אדריכלית רואה רק את התוכניות, המסמכים והמשימות שלה בפרויקטים ששייכת לה.</div><div class="stack">';
   S.profiles.slice().sort(function(a,b){return (a.role==='pending'?0:1)-(b.role==='pending'?0:1);}).forEach(function(u){
@@ -1314,7 +1316,10 @@ async function submitForm(ev){
       await setReminder('ev:'+(evId||''),evRaw.title,(evRaw.startTime?'בשעה '+evRaw.startTime:'כל היום'),remindWhen(evRaw.date,evRaw.startTime,evRaw.remind));
     }
     await loadTable(cfg.col);
+    var askCli=form.e==='project'&&data.clientPhone&&(!exP||!exP.clientPhone||String(exP.clientPhone).replace(/\D/g,'')!==String(data.clientPhone).replace(/\D/g,''));
+    var askPid=form.id||data.id;
     closeSheet();
+    if(askCli)setTimeout(function(){form={e:'_cli',pid:askPid};$('#layer').innerHTML='<div class="scrim" data-act="closeSheet"></div><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="ca_h"><h2 id="ca_h">לשלוח ללקוח בקשת ספקים?</h2><p class="muted">הבוט ישלח ללקוח בוואטסאפ בקשה לשתף את אנשי הקשר של הספקים שלו. מה שישלח יישמר אצלך בספקי הפרויקט.</p><div class="fbtns"><button class="btn btn-accent" data-act="cliask">כן, שלח</button><button class="btn btn-line" data-act="closeSheet">לא עכשיו</button></div></div>';pushOverlay('sheet');},350);
   }catch(err){
     form.busy=false;if(btn){btn.disabled=false;btn.textContent='שמור';}
     ferr(err&&err.code==='auth'?'החיבור לגוגל פג. חזור ליומן ולחץ חבר מחדש.':'השמירה לא הצליחה. נסה שוב.');
@@ -1464,6 +1469,9 @@ function clientTabHtml(p){
   var h='<div class="sec" style="margin-top:12px"><h2>אזור הלקוח</h2></div>';
   h+='<div class="card"><b>מי מחובר</b><div class="muted" style="margin:4px 0">'+(users.length?users.map(function(u){return esc(u.name||'')+' ('+(u.role==='architect'?'אדריכלית':'לקוח')+')';}).join(', '):'עוד אף אחד. הלקוח נרשם באפליקציה, ואתה משייך אותו לפרויקט במסך משתמשים.')+'</div>'+
     '<div class="muted">הלקוח רואה: '+visD+' תמונות, '+visP+' מסמכים (מסמנים "להציג ללקוח" בתיעוד ובמסמכים), '+openResp+' פריטים שמחכים לו, תשלומים, פגישות שסומנו, והודעות.</div></div>';
+  h+='<div class="card" style="margin-top:10px"><b>שליחה בוואטסאפ דרך הבוט</b><div class="muted" style="margin:4px 0 10px">'+(p.clientPhone?'לקוח: <span class="ltr">'+esc(p.clientPhone)+'</span>':'אין טלפון לקוח')+' · '+(p.architect_phone?'אדריכלית: '+esc(p.architect_name||'')+' <span class="ltr">'+esc(p.architect_phone)+'</span>':'אין טלפון אדריכלית')+' (בעריכת הפרויקט)</div>'+
+    '<div class="grid2"><button class="btn btn-line" data-act="sendext" data-k="suppliers"'+(p.clientPhone?'':' disabled')+'>בקשת ספקים ללקוח</button><button class="btn btn-line" data-act="sendext" data-k="open_client"'+(p.clientPhone?'':' disabled')+'>מה פתוח – ללקוח</button>'+
+    '<button class="btn btn-line" data-act="sendext" data-k="plans"'+(p.architect_phone?'':' disabled')+'>בקשת תוכניות לאדריכלית</button><button class="btn btn-line" data-act="sendext" data-k="open_architect"'+(p.architect_phone?'':' disabled')+'>מה פתוח – לאדריכלית</button></div></div>';
   h+='<div class="sec"><h2>תשלומים</h2>'+addBtn('payment','תשלום',p.id)+'</div>';
   h+=pays.length?'<div class="stack">'+pays.map(function(x){return '<div class="item"><button class="main" data-act="edit" data-e="payment" data-id="'+esc(x.id)+'"><div class="t">'+esc(x.title)+'</div><div class="muted">'+(x.due?fdate(x.due):'')+'</div></button><b>'+money(x.amount)+'</b>'+(x.paid?chip('ok','שולם'):chip('neutral','פתוח'))+'</div>';}).join('')+'</div>':emptyBox('עוד אין לוח תשלומים. הלקוח יראה כאן מה שולם ומה הבא.');
   h+='<div class="sec"><h2>בקשות שינוי מהלקוח</h2></div>';
@@ -1757,12 +1765,21 @@ async function respToggle(id,on){
   if(r.error)toast('לא נשמר.');await loadTable('resp_items');
 }
 /* send open items to the client / architect on WhatsApp (opens WhatsApp with the text ready) */
+function sendExt(kind,pid){
+  pid=pid||UI.projectId;toast('שולח…');
+  return botCall({action:'send_ext',project_id:pid,kind:kind}).then(function(r){toast(r&&r.msg?r.msg.split('\n')[0]:'נשלח');return r;},function(){toast('השליחה דרך הבוט לא הצליחה. ודא שהבוט מעודכן.');return null;});
+}
 function respSend(grp){
+  var p=byId('projects',UI.projectId);if(!p)return;
+  if(grp==='architect'?p.architect_phone:p.clientPhone){sendExt(grp==='architect'?'open_architect':'open_client').then(function(r){if(!r||!r.ok)respSendWa(grp);});return;}
+  respSendWa(grp);
+}
+function respSendWa(grp){
   var p=byId('projects',UI.projectId);if(!p)return;
   var list=sResp(p).filter(function(it){return !it.done&&(grp==='architect'?it.grp==='architect':(it.grp==='client'||it.grp==='client_supply'));});
   if(!list.length){toast('אין פריטים פתוחים.');return;}
   var txt='שלום, עדכון מפדר בניה לגבי '+p.name+'.\nאלה הדברים שמחכים לטיפולכם לפי לוח הזמנים:\n'+list.map(function(it,i){return (i+1)+'. '+it.item+(it.urgent?' (מיידי)':'')+(it.week?' – עד שבוע '+it.week:'')+(it.note?' – '+it.note:'');}).join('\n')+'\nתודה!';
-  var ph=grp==='architect'?'':(p.clientPhone||'');
+  var ph=grp==='architect'?(p.architect_phone||''):(p.clientPhone||'');
   var url='https://wa.me/'+(ph?waNum(ph):'')+'?text='+encodeURIComponent(txt);
   window.open(url,'_blank');
 }
@@ -2020,6 +2037,9 @@ document.addEventListener('click',function(ev){
   else if(a==='sdelrow'){sRowDel();}
   else if(a==='sprint'){var ot2=document.title,pp2=byId('projects',UI.projectId);document.title='לוח זמנים - '+(pp2?pp2.name:'');document.body.classList.add('printing-sched');window.print();setTimeout(function(){document.title=ot2;document.body.classList.remove('printing-sched');},1500);}
   else if(a==='respsend'){respSend(el.getAttribute('data-g'));}
+  else if(a==='sendext'){sendExt(el.getAttribute('data-k'));}
+  else if(a==='cliask'){var cpid=form&&form.pid;closeSheet();if(cpid)sendExt('suppliers',cpid);}
+  else if(a==='crontest'){toast('שולח…');botCall({action:'cron_test',force:el.getAttribute('data-v')}).then(function(r){toast(r&&r.ok?('נשלח: '+((r.sent||[]).join(', ')||'אין למי לשלוח')):'לא עבד – הבוט מעודכן?');},function(){toast('לא עבד – הבוט מעודכן?');});}
   else if(a==='ceoadd'){ceoQuickOpen();}
   else if(a==='ceoclose'){CQ=null;if(CQREC){try{CQREC.abort();}catch(e){}}closeSheet();}
   else if(a==='ceoopen'){ceoDecide(id);}

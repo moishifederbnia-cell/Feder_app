@@ -111,6 +111,7 @@ async function handleAudio(c: Ctx, id: string): Promise<string> {
 async function route(c: Ctx, text: string, media: { id: string; video: boolean } | null, voice = false): Promise<string> {
   const t = text.trim();
   if (c.role === "staff" && !media && /^\s*גרסה\s*$/.test(t)) return "גרסת הבוט: " + BOT_VERSION;
+  if (!media && t) { const pre = await preRoute(c, t); if (pre) return pre; }
   // image/video waiting for the missing detail (usually the project)
   let tt = t;
   let mediaCarry: { buf: Uint8Array; mime: string } | null = null;
@@ -201,7 +202,10 @@ async function processMessages(msgs: any[]) {
       if (seen.error && (seen.error as any).code === "23505") continue;
       const c = await identify(from);
       if (!c) continue;
+      await waTouch(from);
       let out = helpText(c);
+      if (c.role === "client" || c.role === "architect") { out = await handleExternal(c, m); if (out) await reply(from, out); continue; }
+      if (m.type === "button" || m.type === "interactive") { out = await handleButton(c, m); if (out) await reply(from, out); continue; }
       if (m.type === "text") out = await route(c, m.text?.body || "", null);
       else if (m.type === "image") out = await route(c, m.image?.caption || "", { id: m.image.id, video: false });
       else if (m.type === "video") out = await route(c, m.video?.caption || "", { id: m.video.id, video: true });
@@ -235,6 +239,20 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   try {
     const body = await req.json();
+    if (body?.action === "cron") {
+      const { data: ck } = await db.from("bot_config").select("value").eq("key", "cron_key").maybeSingle();
+      if (!ck || body.key !== ck.value) return jres({ ok: false }, 401);
+      return jres({ ok: true, sent: await runCron(body.force) });
+    }
+    if (body?.action === "cron_test") {
+      if (!(await authStaff(req))) return jres({ ok: false, error: "unauthorized" }, 401);
+      return jres({ ok: true, sent: await runCron(body.force) });
+    }
+    if (body?.action === "send_ext") {
+      if (!(await authStaff(req))) return jres({ ok: false, error: "unauthorized" }, 401);
+      const r = await sendExtFromApp(body);
+      return jres(r);
+    }
     if (body?.action === "translate" || body?.action === "backfill") {
       if (!(await authStaff(req))) return jres({ ok: false, error: "unauthorized" }, 401);
       if (body.action === "translate") {
