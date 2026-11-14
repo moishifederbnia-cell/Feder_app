@@ -61,7 +61,7 @@ async function openTasksUpTo(day: string) {
   return data || [];
 }
 async function projMap() {
-  const { data } = await db.from("projects").select("id,name,name_ar,status,client_phone,client_name,architect_phone,architect_name,sched_start,sched_weeks");
+  const { data } = await db.from("projects").select("id,name,name_ar,status,client_phone,client_name,architect_phone,architect_name,sched_start,sched_weeks,address");
   const m: Record<string, any> = {}; (data || []).forEach((p: any) => (m[p.id] = p)); return { list: data || [], byId: m };
 }
 function fmtList(tasks: any[], pm: Record<string, any>, ar: boolean, today: string, numbered = false, start = 1) {
@@ -164,6 +164,22 @@ async function runCron(force?: string) {
       out.push("morning→" + p.name);
     }
   }
+  // rain in the next two days at the project sites → WhatsApp to staff (once per rainy day)
+  if ((dow !== 6 && hh === EVENING_HOUR - 1) || force === "rain") {
+    try {
+      const rain = await rainSoon(pm.list);
+      for (const r of rain) {
+        const k = "rain:" + r.date;
+        if (force !== "rain" && await stateGet(k)) continue;
+        await stateSet(k, "1");
+        const when = r.day === 1 ? "מחר" : "עוד יומיים";
+        const txt = "🌧️ " + when + " צפוי גשם (" + r.pct + "%" + (r.mm ? ", " + Math.round(r.mm) + " מ״מ" : "") + ")\n" + r.place + ": " + r.ps.join(", ") + "\nכדאי לתכנן עבודות חוץ, יציקות, איטום וצבע.";
+        for (const p of people.filter((x) => x.urole === "admin" || x.urole === "team" || x.urole === "ceo"))
+          await waSend(p.intl, txt, { name: TPL.update, lang: "he", params: ["תחזית גשם", when + " צפוי גשם באתרים (" + r.pct + "%)"], payload: "more" });
+        out.push("rain→" + r.date);
+      }
+    } catch (_e) { /* weather service down */ }
+  }
   // end of day: did you do it + gantt questions; late projects → CEO
   if ((work && hh === EVENING_HOUR) || force === "evening") {
     const all = await openTasksUpTo(today);
@@ -219,6 +235,36 @@ async function runCron(force?: string) {
   return out;
 }
 const WEEKLY_HOUR = Number(Deno.env.get("WEEKLY_HOUR") || 14);
+// Open-Meteo (free, no key): rain probability at the project addresses only (default: Bnei Brak)
+async function geoIL(q: string) {
+  const tries = [q, q.split(/\s+/).slice(-1)[0], q.split(/\s+/).slice(-2).join(" ")].filter(Boolean);
+  for (const t of tries) {
+    try {
+      const r = await fetch("https://geocoding-api.open-meteo.com/v1/search?count=1&language=he&countryCode=IL&name=" + encodeURIComponent(t));
+      const j = await r.json(); if (j?.results?.[0]) return { lat: j.results[0].latitude, lon: j.results[0].longitude, name: j.results[0].name };
+    } catch (_e) { /* next */ }
+  }
+  return { lat: 32.0807, lon: 34.8338, name: "בני ברק" };
+}
+async function rainSoon(projects: any[]) {
+  const act = projects.filter((p: any) => p.status !== "הסתיים" && p.status !== "סיום");
+  const byLoc: Record<string, any> = {};
+  for (const p of act) {
+    const a = String(p.address || "").split(/[,،]/).map((x: string) => x.trim()).filter(Boolean).pop() || "בני ברק";
+    const g = await geoIL(a); const k = g.lat.toFixed(2) + "," + g.lon.toFixed(2);
+    (byLoc[k] = byLoc[k] || { g, ps: [] as string[] }).ps.push(p.name);
+  }
+  const out: any[] = [];
+  for (const k of Object.keys(byLoc)) {
+    const L = byLoc[k];
+    const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${L.g.lat}&longitude=${L.g.lon}&daily=precipitation_probability_max,precipitation_sum&timezone=Asia%2FJerusalem&forecast_days=3`);
+    const j = await r.json(); if (!j?.daily) continue;
+    for (const d of [1, 2]) { const pct = j.daily.precipitation_probability_max[d]; if (pct >= 60) out.push({ day: d, date: j.daily.time[d], pct, mm: j.daily.precipitation_sum[d], place: L.g.name, ps: L.ps }); }
+  }
+  // one message per rainy day (the most likely place first)
+  const seen: Record<string, boolean> = {};
+  return out.sort((a, b) => a.day - b.day || b.pct - a.pct).filter((x) => (seen[x.date] ? false : (seen[x.date] = true)));
+}
 async function weeklyReport(today: string, pm: { list: any[]; byId: Record<string, any> }) {
   const from = addDays(today, -6), next7 = addDays(today, 7);
   const { data: done } = await db.from("tasks").select("title,project_id,done_at").eq("status", "הושלם").gte("done_at", from + "T00:00:00");
