@@ -228,6 +228,24 @@ async function processMessages(msgs: any[]) {
   }
 }
 
+// ---------- webhook signature (security, 16.11.26) ----------
+// Set the Edge Function secret WA_APP_SECRET = the Meta app's "App Secret" (App settings > Basic).
+// Until it is set, webhooks are accepted as before (with a log warning), so the bot keeps working.
+const WA_APP_SECRET = Deno.env.get("WA_APP_SECRET") || "";
+async function metaSignatureOk(req: Request, raw: string): Promise<boolean> {
+  if (!WA_APP_SECRET) { console.warn("WA_APP_SECRET not set: webhook signature NOT checked"); return true; }
+  const sig = (req.headers.get("x-hub-signature-256") || "").trim();
+  if (!sig.startsWith("sha256=")) return false;
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(WA_APP_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(raw)));
+  const want = Array.from(mac).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const got = sig.slice(7).toLowerCase();
+  if (got.length !== want.length) return false;
+  let diff = 0;
+  for (let i = 0; i < want.length; i++) diff |= want.charCodeAt(i) ^ got.charCodeAt(i);
+  return diff === 0;
+}
+
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   if (req.method === "GET") {
@@ -238,7 +256,8 @@ Deno.serve(async (req) => {
   }
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   try {
-    const body = await req.json();
+    const raw = await req.text();
+    const body = JSON.parse(raw || "{}");
     if (body?.action === "cron") {
       const { data: ck } = await db.from("bot_config").select("value").eq("key", "cron_key").maybeSingle();
       if (!ck || body.key !== ck.value) return jres({ ok: false }, 401);
@@ -272,6 +291,8 @@ Deno.serve(async (req) => {
       remaining += Math.max(0, tTodo.length - 60);
       return jres({ ok: true, translated: done, remaining });
     }
+    // Only Meta may send WhatsApp webhooks: check the X-Hub-Signature-256 header (HMAC of the raw body with the App Secret)
+    if (!(await metaSignatureOk(req, raw))) return new Response("bad signature", { status: 401 });
     const msgs = body?.entry?.[0]?.changes?.[0]?.value?.messages || [];
     if (msgs.length) {
       const job = processMessages(msgs);
